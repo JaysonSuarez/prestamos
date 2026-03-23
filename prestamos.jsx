@@ -439,15 +439,22 @@ function NuevoPrestamo({ clientes, prestamos, savePrestamo, cuotas, saveCuota })
     const meses = (nCuotas * diasPorPeriodos) / 30;
     
     const total = imp + (imp * 0.10 * meses);
-    const cuota = total / nCuotas;
+    const nCuotasInt = parseInt(form.numeroCuotas) || 1;
     
-    const lista = Array.from({ length: nCuotas }, (_, i) => ({
+    // Redondeamos la cuota base a los 50 más cercanos
+    const cuotaBase = Math.round((total / nCuotasInt) / 50) * 50;
+    // La primera cuota absorbe la diferencia para que el total sea exacto
+    const primeraCuota = total - (cuotaBase * (nCuotasInt - 1));
+    
+    const lista = Array.from({ length: nCuotasInt }, (_, i) => ({
       num: i + 1,
       fecha: addPeriod(form.fechaInicio, form.modalidad, i + 1),
-      importe: cuota,
+      importe: i === 0 ? primeraCuota : cuotaBase,
     }));
+    
     const cliente = clientes.find(c => c.clienteId === form.clienteId);
-    setPreview({ imp, total, cuota, lista, cliente });
+    // Guardamos cuotaBase en el objeto preview para la UI
+    setPreview({ imp, total, cuota: cuotaBase, lista, cliente });
   }, [form, clientes]);
 
   const handleRegistrar = async () => {
