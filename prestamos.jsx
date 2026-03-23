@@ -433,9 +433,15 @@ function NuevoPrestamo({ clientes, prestamos, savePrestamo, cuotas, saveCuota })
   useEffect(() => {
     const imp = parseFloat(form.importe);
     if (!form.clienteId || !imp || imp <= 0 || !form.fechaInicio) { setPreview(null); return; }
-    const total   = imp * 1.10;
-    const cuota   = total / parseInt(form.numeroCuotas);
-    const lista   = Array.from({ length: parseInt(form.numeroCuotas) }, (_, i) => ({
+    
+    const nCuotas = parseInt(form.numeroCuotas) || 1;
+    const diasPorPeriodos = PERIODO_DIAS[form.modalidad] || 30;
+    const meses = (nCuotas * diasPorPeriodos) / 30;
+    
+    const total = imp + (imp * 0.10 * meses);
+    const cuota = total / nCuotas;
+    
+    const lista = Array.from({ length: nCuotas }, (_, i) => ({
       num: i + 1,
       fecha: addPeriod(form.fechaInicio, form.modalidad, i + 1),
       importe: cuota,
@@ -546,7 +552,7 @@ function NuevoPrestamo({ clientes, prestamos, savePrestamo, cuotas, saveCuota })
 
           <Inp label="Tasa de interés">
             <div style={{ padding: "9px 12px", background: "#f8fafc", border: `1.5px solid ${C.border}`, borderRadius: 8, fontSize: 14, fontWeight: 700, color: C.muted }}>
-              10% fijo sobre el capital
+              10% mensual sobre el capital
             </div>
           </Inp>
 
@@ -581,7 +587,7 @@ function NuevoPrestamo({ clientes, prestamos, savePrestamo, cuotas, saveCuota })
                 {[
                   ["Cliente",           `${preview.cliente?.clienteId} — ${preview.cliente?.nombre} ${preview.cliente?.apellido}`],
                   ["Capital prestado",  fmtCOP(preview.imp)],
-                  ["Interés (10%)",     fmtCOP(preview.imp * 0.10)],
+                  ["Interés total",     fmtCOP(preview.total - preview.imp)],
                   ["Modalidad",         form.modalidad],
                   ["N° de cuotas",      form.numeroCuotas],
                   ["Valor por cuota",   fmtCOP(preview.cuota)],
