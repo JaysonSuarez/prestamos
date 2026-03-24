@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -233,6 +233,13 @@ function useSupabaseStore(table, fieldsMapping) {
     }
   };
 
+  const deleteOne = async (idField, idVal) => {
+    const dbField = fieldsMapping[idField] || idField;
+    const { error } = await supabase.from(table).delete().eq(dbField, idVal);
+    if (error) toast.error(`Error eliminando en ${table}: ${error.message}`);
+    else refresh();
+  };
+
   return [val, saveOne, deleteOne, ready, refresh];
 }
 
@@ -248,6 +255,8 @@ const C = {
   yellow: "#92400e", yellowBg: "#fef3c7", yellowBorder: "#fcd34d",
   red: "#b91c1c",   redBg: "#fee2e2",   redBorder: "#fca5a5",
   blue: "#1d4ed8",  blueBg: "#dbeafe",
+  shadow: "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)",
+  shadowLg: "0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)",
 };
 
 // ═══════════════════════════════════════════════════════
@@ -273,7 +282,15 @@ const StatusBadge = ({ estado }) => {
 };
 
 const Card = ({ children, style }) => (
-  <div className="card-compact" style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, ...style }}>
+  <div className="card-compact" style={{ 
+    background: C.card, 
+    border: `1px solid ${C.border}`, 
+    borderRadius: 16, 
+    padding: 24, 
+    boxShadow: C.shadow,
+    transition: "all 0.3s ease",
+    ...style 
+  }}>
     {children}
   </div>
 );
@@ -519,7 +536,7 @@ const INIT_FORM = { clienteId: "", importe: "", modalidad: "mensual", numeroCuot
 function NuevoPrestamo({ clientes, prestamos, savePrestamo, cuotas, saveCuota }) {
   const [form, setForm]     = useState(INIT_FORM);
   const [preview, setPreview] = useState(null);
-  const [toast, setToast]   = useState(null);
+  const [localToast, setLocalToast] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -584,8 +601,8 @@ function NuevoPrestamo({ clientes, prestamos, savePrestamo, cuotas, saveCuota })
         await saveCuota(cuota);
       }
 
-      setToast(`✅ Préstamo ${prestamoId} registrado con ${parseInt(form.numeroCuotas)} cuotas`);
-      setTimeout(() => setToast(null), 4000);
+      setLocalToast(`✅ Préstamo ${prestamoId} registrado con ${parseInt(form.numeroCuotas)} cuotas`);
+      setTimeout(() => setLocalToast(null), 4000);
       setForm(INIT_FORM);
     } catch (e) {
       console.error(e);
@@ -600,9 +617,9 @@ function NuevoPrestamo({ clientes, prestamos, savePrestamo, cuotas, saveCuota })
     <div>
       <h1 style={sty.pageTitle}>Nuevo Préstamo</h1>
 
-      {toast && (
+      {localToast && (
         <div style={{ background: C.greenBg, color: C.green, border: `1px solid ${C.greenBorder}`, borderRadius: 10, padding: "14px 20px", marginBottom: 20, fontWeight: 700, fontSize: 14 }}>
-          {toast}
+          {localToast}
         </div>
       )}
 
@@ -993,27 +1010,98 @@ function Estados({ clientes, prestamos, cuotas, saveCuota, deletePrestamo }) {
     await saveCuota({ ...c, estado: "pendiente", fechaPago: null });
   };
 
-  const filtered = cuotas
-    .filter(c => {
-      const e = getEstado(c);
-      if (filtroEstado !== "todos" && e !== filtroEstado) return false;
-      if (filtroCliente  && c.clienteId  !== filtroCliente)  return false;
-      if (filtroPrestamo && c.prestamoId !== filtroPrestamo) return false;
-      
-      // Mostrar solo la próxima cuota a pagar para cada préstamo
-      if (e !== "pagado") {
-        const cuotasPendientes = cuotas.filter(x => x.prestamoId === c.prestamoId && getEstado(x) !== "pagado");
-        const minNum = Math.min(...cuotasPendientes.map(x => x.numeroCuota));
-        if (c.numeroCuota !== minNum) return false;
+  const displayItems = [];
+
+  if (filtroEstado === "pagado") {
+    // Group fully paid loans into single rows
+    prestamos.forEach(p => {
+      const cuotasP = cuotas.filter(c => c.prestamoId === p.prestamoId);
+      if (cuotasP.length > 0 && cuotasP.every(c => c.estado === "pagado")) {
+        const cl = clientes.find(x => x.clienteId === p.cliente_id);
+        if (filtroCliente && p.cliente_id !== filtroCliente) return;
+        if (filtroPrestamo && p.prestamoId !== filtroPrestamo) return;
+        displayItems.push({
+          type: "prestamo",
+          prestamoId: p.prestamoId,
+          clienteId: p.cliente_id,
+          nombre: cl ? `${cl.nombre} ${cl.apellido}` : "—",
+          modalidad: p.modalidad,
+          numeroCuota: "COMPLETO",
+          vencimiento: cuotasP[cuotasP.length - 1].fechaPago || cuotasP[cuotasP.length - 1].fechaVencimiento,
+          importe: p.totalAPagar,
+          mora: 0,
+          deudaTotal: 0,
+          dm: 0,
+          tipo: null,
+          fechaPago: cuotasP[cuotasP.length - 1].fechaPago,
+          estado: "pagado",
+          rawCliente: cl,
+          rawPrestamo: p,
+          rawCuotas: cuotasP
+        });
       }
-      return true;
-    })
-    .sort((a, b) => {
-      const ea = getEstado(a), eb = getEstado(b);
-      if (ea === "mora" && eb !== "mora") return -1;
-      if (eb === "mora" && ea !== "mora") return 1;
-      return a.fechaVencimiento.localeCompare(b.fechaVencimiento);
     });
+  } else {
+    // Show only next pending cuotas for active loans
+    cuotas.forEach(c => {
+      const e = getEstado(c);
+      const cuotasPrestamo = cuotas.filter(x => x.prestamoId === c.prestamoId);
+      const estaSaldado = cuotasPrestamo.every(x => x.estado === "pagado");
+      
+      if (estaSaldado) return; // Hide from these views
+
+      // Filter logic
+      if (filtroEstado !== "todos" && e !== filtroEstado) return;
+      if (filtroCliente && c.clienteId !== filtroCliente) return;
+      if (filtroPrestamo && c.prestamoId !== filtroPrestamo) return;
+
+      // Only show the "next" cuota
+      if (e !== "pagado") {
+        const cuotasPendientes = cuotasPrestamo.filter(x => getEstado(x) !== "pagado");
+        const minNum = Math.min(...cuotasPendientes.map(x => x.numeroCuota));
+        if (c.numeroCuota !== minNum) return;
+      } else {
+        // If we are in "todos" but this cuota is paid and there are pending ones, skip it
+        return;
+      }
+
+      const cl = clientes.find(x => x.clienteId === c.clienteId);
+      const p  = prestamos.find(x => x.prestamoId === c.prestamoId);
+      const mora = e === "mora" ? calcMoraAcum(c.importeCuota, p?.modalidad, c.fechaVencimiento, c.estado) : 0;
+      const todasPendientes = cuotasPrestamo.filter(x => getEstado(x) !== "pagado");
+      const deudaTotal = todasPendientes.reduce((s, x) => s + x.importeCuota + calcMoraAcum(x.importeCuota, p?.modalidad, x.fechaVencimiento, x.estado), 0);
+
+      displayItems.push({
+        type: "cuota",
+        cuotaId: c.cuotaId,
+        prestamoId: c.prestamoId,
+        clienteId: c.clienteId,
+        nombre: cl ? `${cl.nombre} ${cl.apellido}` : "—",
+        modalidad: p?.modalidad || "—",
+        numeroCuota: `${c.numeroCuota}/${p?.numeroCuotas || "?"}`,
+        vencimiento: c.fechaVencimiento,
+        importe: c.importeCuota,
+        mora: mora,
+        deudaTotal: deudaTotal,
+        dm: calcDiasMora(c.fechaVencimiento),
+        tipo: getAlertType(c),
+        fechaPago: c.fechaPago,
+        estado: e,
+        rawCliente: cl,
+        rawPrestamo: p,
+        rawCuota: c
+      });
+    });
+  }
+
+  // Final sort: Mora first, then by date
+  displayItems.sort((a, b) => {
+    if (a.estado === "pagado" && b.estado !== "pagado") return 1;
+    if (b.estado === "pagado" && a.estado !== "pagado") return -1;
+    if (a.estado === "mora" && b.estado !== "mora") return -1;
+    if (b.estado === "mora" && a.estado !== "mora") return 1;
+    return a.vencimiento.localeCompare(b.vencimiento);
+  });
 
   const rowBg = {
     pagado:    { bg: "#f0fdf4", left: C.green },
@@ -1063,7 +1151,7 @@ function Estados({ clientes, prestamos, cuotas, saveCuota, deletePrestamo }) {
         </select>
       </div>
 
-      <div style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>{filtered.length} cuota(s) · ordenadas por mora → fecha</div>
+      <div style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>{displayItems.length} cuota(s) · ordenadas por mora → fecha</div>
 
       {/* Modal confirmación pago */}
       {confirmId && (() => {
@@ -1099,69 +1187,58 @@ function Estados({ clientes, prestamos, cuotas, saveCuota, deletePrestamo }) {
           <table style={{ ...sty.table, minWidth: 1100 }}>
             <thead>
               <tr style={{ background: "#f8fafc" }}>
-                {["ID Préstamo", "Cod. Cliente", "Nombre", "Modalidad", "Próx. Cuota", "Vencimiento", "Val. Cuota", "Mora Acum.", "DEUDA TOTAL", "Días Mora", "Alerta", "Fecha Pago", "Estado", "Acción"].map(h => (
+                {["ID Préstamo", "Cod. Cliente", "Nombre", "Modalidad", "Estado/Cuota", "Fecha", "Monto", "Mora Acum.", "ESTADO DEUDA", "Mora(d)", "Alerta", "Fecha Pago", "Badge", "Acción"].map(h => (
                   <th key={h} style={sty.th}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && (
+              {displayItems.length === 0 && (
                 <tr>
                   <td colSpan={14} style={{ padding: 48, textAlign: "center", color: C.muted }}>
-                    No hay cuotas que mostrar con estos filtros
+                    No hay registros que mostrar con estos filtros
                   </td>
                 </tr>
               )}
-              {filtered.map(c => {
-                const estado   = getEstado(c);
-                const prestamo = prestamos.find(p => p.prestamoId === c.prestamoId);
-                const cliente  = clientes.find(cl => cl.clienteId === c.clienteId);
-                const mora     = estado === "mora"
-                  ? calcMoraAcum(c.importeCuota, prestamo?.modalidad, c.fechaVencimiento, c.estado)
-                  : 0;
-                // Deuda total del préstamo = suma de TODAS las cuotas pendientes + mora acumulada
-                const todasPendientes = cuotas.filter(x => x.prestamoId === c.prestamoId && getEstado(x) !== "pagado");
-                const deudaTotal = todasPendientes.reduce((s, x) => {
-                  const moraCuota = calcMoraAcum(x.importeCuota, prestamo?.modalidad, x.fechaVencimiento, x.estado);
-                  return s + x.importeCuota + moraCuota;
-                }, 0);
-                const dm   = calcDiasMora(c.fechaVencimiento);
-                const tipo = getAlertType(c);
-                const rc   = rowBg[estado] || rowBg.pendiente;
+              {displayItems.map(item => {
+                const isPaid = item.estado === "pagado";
+                const rc = rowBg[item.estado] || rowBg.pendiente;
 
                 return (
-                  <tr key={c.cuotaId} style={{ background: rc.bg, borderTop: `1px solid ${C.border}`, borderLeft: `4px solid ${rc.left}` }}>
-                    <td style={sty.td}><span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 800, color: C.blue }}>{c.prestamoId}</span></td>
-                    <td style={sty.td}><span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700 }}>{c.clienteId}</span></td>
-                    <td style={{ ...sty.td, whiteSpace: "nowrap" }}><strong style={{ fontSize: 13 }}>{cliente ? `${cliente.nombre} ${cliente.apellido}` : "—"}</strong></td>
-                    <td style={sty.td}><span style={{ textTransform: "capitalize", fontSize: 12, color: C.muted }}>{prestamo?.modalidad || "—"}</span></td>
-                    <td style={{ ...sty.td, textAlign: "center", fontWeight: 700 }}>{c.numeroCuota}<span style={{ color: C.muted, fontWeight: 400 }}>/{prestamo?.numeroCuotas || "?"}</span></td>
-                    <td style={{ ...sty.td, whiteSpace: "nowrap" }}>{fmtDate(c.fechaVencimiento)}</td>
-                    <td style={{ ...sty.td, fontWeight: 700 }}>{fmtCOP(c.importeCuota)}</td>
-                    <td style={{ ...sty.td, fontWeight: mora > 0 ? 800 : 400, color: mora > 0 ? C.red : C.muted }}>{mora > 0 ? fmtCOP(mora) : "—"}</td>
-                    <td style={{ ...sty.td, fontWeight: 900, color: estado === "pagado" ? C.green : C.red, fontSize: 14, background: estado !== "pagado" ? "rgba(185,28,28,0.06)" : undefined }}>
-                      {estado === "pagado" ? <span style={{ color: C.green }}>✓ Saldado</span> : fmtCOP(deudaTotal)}
+                  <tr key={item.type === "cuota" ? item.cuotaId : item.prestamoId} style={{ background: rc.bg, borderTop: `1px solid ${C.border}`, borderLeft: `4px solid ${rc.left}` }}>
+                    <td style={sty.td}><span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 800, color: C.blue }}>{item.prestamoId}</span></td>
+                    <td style={sty.td}><span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700 }}>{item.clienteId}</span></td>
+                    <td style={{ ...sty.td, whiteSpace: "nowrap" }}><strong style={{ fontSize: 13 }}>{item.nombre}</strong></td>
+                    <td style={sty.td}><span style={{ textTransform: "capitalize", fontSize: 12, color: C.muted }}>{item.modalidad}</span></td>
+                    <td style={{ ...sty.td, textAlign: "center", fontWeight: 700 }}>{item.numeroCuota}</td>
+                    <td style={{ ...sty.td, whiteSpace: "nowrap" }}>{fmtDate(item.vencimiento)}</td>
+                    <td style={{ ...sty.td, fontWeight: 700 }}>{fmtCOP(item.importe)}</td>
+                    <td style={{ ...sty.td, fontWeight: item.mora > 0 ? 800 : 400, color: item.mora > 0 ? C.red : C.muted }}>{item.mora > 0 ? fmtCOP(item.mora) : "—"}</td>
+                    <td style={{ ...sty.td, fontWeight: 900, color: isPaid ? C.green : C.red, fontSize: 14, background: !isPaid ? "rgba(185,28,28,0.06)" : undefined }}>
+                      {isPaid ? <span style={{ color: C.green }}>✓ Liquidado</span> : fmtCOP(item.deudaTotal)}
                     </td>
-                    <td style={{ ...sty.td, textAlign: "center", fontWeight: dm > 0 ? 800 : 400, color: dm > 0 ? C.red : C.muted }}>{dm > 0 ? `${dm}d` : "—"}</td>
-                    <td style={{ ...sty.td, textAlign: "center", fontSize: 16 }}>{tipo ? alertIcons[tipo] : "—"}</td>
-                    <td style={{ ...sty.td, whiteSpace: "nowrap" }}>{fmtDate(c.fechaPago)}</td>
-                    <td style={sty.td}><StatusBadge estado={estado} /></td>
+                    <td style={{ ...sty.td, textAlign: "center", fontWeight: item.dm > 0 ? 800 : 400, color: item.dm > 0 ? C.red : C.muted }}>{item.dm > 0 ? `${item.dm}d` : "—"}</td>
+                    <td style={{ ...sty.td, textAlign: "center", fontSize: 16 }}>{item.tipo ? alertIcons[item.tipo] : "—"}</td>
+                    <td style={{ ...sty.td, whiteSpace: "nowrap" }}>{fmtDate(item.fechaPago)}</td>
+                    <td style={sty.td}><StatusBadge estado={item.estado} /></td>
                     <td style={sty.td}>
                       <div style={{ display: "flex", gap: 4 }}>
-                        {estado !== "pagado"
-                          ? <button style={{ ...sty.btnSm, background: C.greenBg, color: C.green, fontWeight: 800, fontSize: 11, border: `1px solid ${C.greenBorder}` }} onClick={() => setConfirmId(c.cuotaId)}>✓ Pagar</button>
-                          : <button style={{ ...sty.btnSm, background: C.redBg, color: C.red, fontSize: 11 }} onClick={() => deshacerPago(c.cuotaId)}>↩ Anular</button>
-                        }
+                        {item.type === "cuota" && (
+                          <button style={{ ...sty.btnSm, background: C.greenBg, color: C.green, fontWeight: 800, fontSize: 11, border: `1px solid ${C.greenBorder}` }} onClick={() => setConfirmId(item.cuotaId)}>✓ Pagar</button>
+                        )}
+                        {item.type === "cuota" && item.estado === "pagado" && (
+                          <button style={{ ...sty.btnSm, background: C.redBg, color: C.red, fontSize: 11 }} onClick={() => deshacerPago(item.cuotaId)}>↩ Anular</button>
+                        )}
                         <button 
                           style={{ ...sty.btnSm, background: C.blueBg, color: C.blue, border: `1px solid #93c5fd` }} 
-                          onClick={() => exportToPDF(cliente, prestamo, cuotas.filter(x => x.prestamoId === c.prestamoId))}
+                          onClick={() => exportToPDF(item.rawCliente, item.rawPrestamo, item.type === "cuota" ? cuotas.filter(x => x.prestamoId === item.prestamoId) : item.rawCuotas)}
                           title="Descargar PDF"
                         >
                           📄 PDF
                         </button>
                         <button 
                           style={{ ...sty.btnSm, background: C.redBg, color: C.red, border: `1px solid ${C.redBorder}` }} 
-                          onClick={() => deletePrestamo(c.prestamoId)}
+                          onClick={() => deletePrestamo(item.prestamoId)}
                           title="Eliminar este préstamo completo"
                         >
                           🗑️
@@ -1192,9 +1269,9 @@ const sty = {
     fontSize: 14, outline: "none", boxSizing: "border-box", background: "#fff", color: C.text,
     fontFamily: "inherit",
   },
-  btnPrimary: { padding: "11px 24px", background: C.blue, color: "white", border: "none", borderRadius: 10, fontWeight: 800, cursor: "pointer", fontSize: 14 },
-  btnOutline: { padding: "11px 24px", background: "white", color: C.text, border: `2px solid ${C.border}`, borderRadius: 10, fontWeight: 700, cursor: "pointer", fontSize: 14 },
-  btnSm: { padding: "6px 14px", background: "#f1f5f9", border: `1px solid ${C.border}`, borderRadius: 7, cursor: "pointer", fontSize: 13, marginRight: 4 },
+  btnPrimary: { padding: "11px 24px", background: C.blue, color: "white", border: "none", borderRadius: 10, fontWeight: 800, cursor: "pointer", fontSize: 14, transition: "0.2s" },
+  btnOutline: { padding: "11px 24px", background: "white", color: C.text, border: `2px solid ${C.border}`, borderRadius: 10, fontWeight: 700, cursor: "pointer", fontSize: 14, transition: "0.2s" },
+  btnSm: { padding: "6px 14px", background: "#f1f5f9", border: `1px solid ${C.border}`, borderRadius: 7, cursor: "pointer", fontSize: 13, marginRight: 4, transition: "0.15s" },
   table: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
   th: { padding: "12px 14px", textAlign: "left", fontSize: 10, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, whiteSpace: "nowrap" },
   td: { padding: "12px 14px", verticalAlign: "middle" },
@@ -1233,7 +1310,6 @@ export default function App() {
     prestamoId: "prestamo_id", cliente_id: "cliente_id", importe: "importe", modalidad: "modalidad", 
     numeroCuotas: "numero_cuotas", importeCuota: "importe_cuota", totalAPagar: "total_a_pagar", fechaInicio: "fecha_inicio"
   });
-  // Mapping for cuotas
   const [cuotas, saveCuota, delCuota, loadedQ, refreshCuotas] = useSupabaseStore("cuotas", {
      cuotaId: "cuota_id", prestamoId: "prestamo_id", clienteId: "cliente_id",
      numeroCuota: "numero_cuota", fechaVencimiento: "fecha_vencimiento",
@@ -1246,14 +1322,12 @@ export default function App() {
   const handleEliminarPrestamo = async (prestamoId) => {
     if (!window.confirm(`⚠️ ¿Estás seguro de eliminar el préstamo ${prestamoId}? \nEsta acción eliminará todas las cuotas de este crédito y NO se puede deshacer.`)) return;
     
-    // 1. Delete cuotas
     const { error: errorQ } = await supabase.from("cuotas").delete().eq("prestamo_id", prestamoId);
     if (errorQ) {
        toast.error("Error al eliminar cuotas: " + errorQ.message);
        return;
     }
 
-    // 2. Delete prestamo
     const { error: errorP } = await supabase.from("prestamos").delete().eq("prestamo_id", prestamoId);
     if (errorP) {
        toast.error("Error al eliminar préstamo: " + errorP.message);
@@ -1266,7 +1340,6 @@ export default function App() {
   };
 
   const [tab, setTab] = useState("dashboard");
-
   const capitalInicial = configs.find(x => x.id === "capital_inicial")?.value || 0;
 
   const handleSetCapital = (val) => {
@@ -1274,20 +1347,10 @@ export default function App() {
   };
 
   const prevAlertsCount = useRef(0);
-
   useEffect(() => {
     const alertas = cuotas.filter(c => getAlertType(c) !== null);
     if (alertas.length > prevAlertsCount.current) {
-      toast.warn(`💰 ¡Nueva alerta de mora! Tienes ${alertas.length} cuotas pendientes.`, {
-        position: "top-right",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-        theme: "light",
-      });
+      toast.warn(`💰 ¡Nueva alerta de mora! Tienes ${alertas.length} cuotas pendientes.`, { position: "top-right", theme: "light" });
       playAlertSound();
     }
     prevAlertsCount.current = alertas.length;
@@ -1303,7 +1366,6 @@ export default function App() {
   }
 
   const alertas = cuotas.filter(c => getAlertType(c) !== null);
-
   const tabs = [
     { id: "dashboard", icon: "📊", label: "Dashboard" },
     { id: "capital",   icon: "💼", label: "Capital Propio" },
@@ -1315,6 +1377,10 @@ export default function App() {
   return (
     <div style={appStyles.root} className="app-root">
       <style>{`
+        .app-nav-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important; }
+        .app-nav-btn:hover { background: rgba(255,255,255,0.05) !important; color: white !important; transform: translateX(4px); }
+        .card-compact:hover { transform: translateY(-3px); box-shadow: ${C.shadowLg} !important; }
+        
         @media (max-width: 768px) {
           .app-root { flex-direction: column !important; overflow: auto !important; }
           .app-sidebar { width: 100% !important; height: auto !important; position: static !important; }
@@ -1331,7 +1397,6 @@ export default function App() {
           h1 { font-size: 20px !important; }
         }
       `}</style>
-      {/* ─ Sidebar ─ */}
       <aside style={appStyles.sidebar} className="app-sidebar">
         <div style={appStyles.logo} className="app-logo">
           <span style={appStyles.logoIcon}>💰</span>
@@ -1340,32 +1405,21 @@ export default function App() {
             <div style={appStyles.logoSub}>Gestión de créditos</div>
           </div>
         </div>
-
         <nav style={appStyles.nav} className="app-nav">
           {tabs.map(t => (
-            <button
-              key={t.id}
-              style={{ ...appStyles.navBtn, ...(tab === t.id ? appStyles.navBtnActive : {}) }}
-              onClick={() => setTab(t.id)}
-              className="app-nav-btn"
-            >
+            <button key={t.id} style={{ ...appStyles.navBtn, ...(tab === t.id ? appStyles.navBtnActive : {}) }} onClick={() => setTab(t.id)} className="app-nav-btn">
               <span style={{ fontSize: 18 }}>{t.icon}</span>
               <span>{t.label}</span>
-              {t.id === "estados" && alertas.length > 0 && (
-                <span style={appStyles.badge}>{alertas.length}</span>
-              )}
+              {t.id === "estados" && alertas.length > 0 && <span style={appStyles.badge}>{alertas.length}</span>}
             </button>
           ))}
         </nav>
-
         <div style={appStyles.sidebarFooter} className="app-sidebar-footer">
           <div style={appStyles.statsRow}><span>Clientes</span><strong style={{ color: "rgba(255,255,255,0.8)" }}>{clientes.length}</strong></div>
           <div style={appStyles.statsRow}><span>Préstamos</span><strong style={{ color: "rgba(255,255,255,0.8)" }}>{prestamos.length}</strong></div>
           <div style={appStyles.statsRow}><span>Cuotas</span><strong style={{ color: "rgba(255,255,255,0.8)" }}>{cuotas.length}</strong></div>
         </div>
       </aside>
-
-      {/* ─ Main ─ */}
       <main style={appStyles.main} className="app-main">
         {tab === "dashboard" && <Dashboard clientes={clientes} prestamos={prestamos} cuotas={cuotas} alertas={alertas} />}
         {tab === "capital"   && <CapitalPropio prestamos={prestamos} cuotas={cuotas} capitalInicial={capitalInicial} setCapitalInicial={handleSetCapital} deletePrestamo={handleEliminarPrestamo} />}
