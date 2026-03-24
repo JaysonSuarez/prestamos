@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { jsPDF } from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -90,87 +90,91 @@ const genId = (prefix, arr, field) => {
 //  PDF GENERATOR
 // ═══════════════════════════════════════════════════════
 const exportToPDF = (cliente, prestamo, cuotasP) => {
-  if (!cliente || !prestamo || !cuotasP) return;
-  const doc = new jsPDF();
-  
-  // Header
-  doc.setFontSize(22);
-  doc.setTextColor(22, 33, 62); // C.sidebar color
-  doc.text("ESTADO DE CUENTA - PRÉSTAMOS PRO", 105, 20, { align: "center" });
-  
-  doc.setFontSize(10);
-  doc.setTextColor(100);
-  doc.text(`Fecha de reporte: ${new Date().toLocaleString()}`, 105, 28, { align: "center" });
-  
-  // Client Info Section
-  doc.setDrawColor(226, 232, 240);
-  doc.line(14, 35, 196, 35);
-  
-  doc.setFontSize(12);
-  doc.setTextColor(30, 41, 59);
-  doc.setFont("helvetica", "bold");
-  doc.text("DATOS DEL CLIENTE", 14, 45);
-  doc.setFont("helvetica", "normal");
-  doc.text(`Nombre: ${cliente.nombre} ${cliente.apellido}`, 14, 52);
-  doc.text(`Documento: ${cliente.cc}`, 14, 58);
-  doc.text(`Teléfono: ${cliente.telefono || "—"}`, 14, 64);
-  doc.text(`Dirección: ${cliente.domicilio || "—"}`, 14, 70);
-  
-  // Loan Info Section
-  doc.setFont("helvetica", "bold");
-  doc.text("RESUMEN DEL CRÉDITO", 110, 45);
-  doc.setFont("helvetica", "normal");
-  doc.text(`ID Préstamo: ${prestamo.prestamoId}`, 110, 52);
-  doc.text(`Capital: ${fmtCOP(prestamo.importe)}`, 110, 58);
-  doc.text(`Modalidad: ${prestamo.modalidad.charAt(0).toUpperCase() + prestamo.modalidad.slice(1)}`, 110, 64);
-  doc.text(`Total a Pagar: ${fmtCOP(prestamo.totalAPagar)}`, 110, 70);
+  try {
+    if (!cliente || !prestamo || !cuotasP) return;
+    const doc = new jsPDF();
+    
+    // Header
+    doc.setFontSize(22);
+    doc.setTextColor(22, 33, 62); // C.sidebar color
+    doc.text("ESTADO DE CUENTA - PRÉSTAMOS PRO", 105, 20, { align: "center" });
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Fecha de reporte: ${new Date().toLocaleString()}`, 105, 28, { align: "center" });
+    
+    // Client Info Section
+    doc.setDrawColor(226, 232, 240);
+    doc.line(14, 35, 196, 35);
+    
+    doc.setFontSize(12);
+    doc.setTextColor(30, 41, 59);
+    doc.setFont("helvetica", "bold");
+    doc.text("DATOS DEL CLIENTE", 14, 45);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Nombre: ${cliente.nombre} ${cliente.apellido}`, 14, 52);
+    doc.text(`Documento: ${cliente.cc}`, 14, 58);
+    doc.text(`Teléfono: ${cliente.telefono || "—"}`, 14, 64);
+    doc.text(`Dirección: ${cliente.domicilio || "—"}`, 14, 70);
+    
+    // Loan Info Section
+    doc.setFont("helvetica", "bold");
+    doc.text("RESUMEN DEL CRÉDITO", 110, 45);
+    doc.setFont("helvetica", "normal");
+    doc.text(`ID Préstamo: ${prestamo.prestamoId}`, 110, 52);
+    doc.text(`Capital: ${fmtCOP(prestamo.importe)}`, 110, 58);
+    doc.text(`Modalidad: ${prestamo.modalidad.charAt(0).toUpperCase() + prestamo.modalidad.slice(1)}`, 110, 64);
+    doc.text(`Total a Pagar: ${fmtCOP(prestamo.totalAPagar)}`, 110, 70);
 
-  // Financial Summary logic
-  const pagado = cuotasP.filter(c => c.estado === "pagado").reduce((s, c) => s + c.importeCuota, 0);
-  const todasPendientes = cuotasP.filter(c => getEstado(c) !== "pagado");
-  const moraTotal = todasPendientes.reduce((s, c) => s + calcMoraAcum(c.importeCuota, prestamo.modalidad, c.fechaVencimiento, c.estado), 0);
-  const porPagar = todasPendientes.reduce((s, c) => s + c.importeCuota, 0) + moraTotal;
+    // Financial Summary logic
+    const todasPendientes = cuotasP.filter(c => getEstado(c) !== "pagado");
+    const moraTotal = todasPendientes.reduce((s, c) => s + calcMoraAcum(c.importeCuota, prestamo.modalidad, c.fechaVencimiento, c.estado), 0);
+    const porPagar = todasPendientes.reduce((s, c) => s + c.importeCuota, 0) + moraTotal;
 
-  doc.setDrawColor(233, 69, 96); // C.accent
-  doc.setFillColor(248, 250, 252);
-  doc.rect(14, 78, 182, 10, 'F');
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "bold");
-  doc.text(`ESTADO ACTUAL: ${porPagar <= 0 ? "LIQUIDADO" : "DEUDA ACTIVA: " + fmtCOP(porPagar)}`, 105, 84, { align: "center" });
+    doc.setDrawColor(233, 69, 96); // C.accent
+    doc.setFillColor(248, 250, 252);
+    doc.rect(14, 78, 182, 10, 'F');
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text(`ESTADO ACTUAL: ${porPagar <= 0 ? "LIQUIDADO" : "DEUDA ACTIVA: " + fmtCOP(porPagar)}`, 105, 84, { align: "center" });
 
-  // Table of Cuotas
-  const head = [['#', 'Vencimiento', 'Importe', 'Estado', 'Mora', 'Pago', 'Total Pagado']];
-  const body = cuotasP.sort((a,b) => a.numeroCuota - b.numeroCuota).map(c => {
-      const mora = getEstado(c) === "mora" ? calcMoraAcum(c.importeCuota, prestamo.modalidad, c.fechaVencimiento, c.estado) : 0;
-      return [
-        c.numeroCuota,
-        fmtDate(c.fechaVencimiento),
-        fmtCOP(c.importeCuota),
-        getEstado(c).toUpperCase(),
-        mora > 0 ? fmtCOP(mora) : "—",
-        c.fechaPago ? fmtDate(c.fechaPago) : "—",
-        c.estado === "pagado" ? fmtCOP(c.importeCuota) : "—"
-      ];
-  });
+    // Table of Cuotas
+    const head = [['#', 'Vencimiento', 'Importe', 'Estado', 'Mora', 'Pago', 'Total Pagado']];
+    const body = cuotasP.sort((a,b) => a.numeroCuota - b.numeroCuota).map(c => {
+        const mora = getEstado(c) === "mora" ? calcMoraAcum(c.importeCuota, prestamo.modalidad, c.fechaVencimiento, c.estado) : 0;
+        return [
+          c.numeroCuota,
+          fmtDate(c.fechaVencimiento),
+          fmtCOP(c.importeCuota),
+          getEstado(c).toUpperCase(),
+          mora > 0 ? fmtCOP(mora) : "—",
+          c.fechaPago ? fmtDate(c.fechaPago) : "—",
+          c.estado === "pagado" ? fmtCOP(c.importeCuota) : "—"
+        ];
+    });
 
-  doc.autoTable({
-    startY: 95,
-    head: head,
-    body: body,
-    theme: 'striped',
-    headStyles: { fillColor: [22, 33, 96], textColor: 255 }, // Dark UI blue
-    styles: { fontSize: 9, cellPadding: 3 },
-    columnStyles: { 0: { cellWidth: 10 } }
-  });
+    autoTable(doc, {
+      startY: 95,
+      head: head,
+      body: body,
+      theme: 'striped',
+      headStyles: { fillColor: [22, 33, 96], textColor: 255 },
+      styles: { fontSize: 9, cellPadding: 3 },
+      columnStyles: { 0: { cellWidth: 10 } }
+    });
 
-  // Footer / Notes
-  const finalY = doc.lastAutoTable.finalY + 10;
-  doc.setFontSize(8);
-  doc.setTextColor(150);
-  doc.text("Este documento es un registro informativo del estado actual del crédito.", 14, finalY);
-  doc.text("Préstamos Pro System - Gestionado digitalmente.", 14, finalY + 4);
+    // Footer
+    const finalY = doc.lastAutoTable.finalY + 10;
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.text("Este documento es un registro informativo del estado actual del crédito.", 14, finalY);
+    doc.text("Préstamos Pro System - Gestionado digitalmente.", 14, finalY + 4);
 
-  doc.save(`Estado_Cuenta_${cliente.cc}_${prestamo.prestamoId}.pdf`);
+    doc.save(`Estado_Cuenta_${cliente.cc}_${prestamo.prestamoId}.pdf`);
+  } catch (err) {
+    console.error("PDF Error:", err);
+    toast.error("Error al generar PDF: " + err.message);
+  }
 };
 
 // ═══════════════════════════════════════════════════════
