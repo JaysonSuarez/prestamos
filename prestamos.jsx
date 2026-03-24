@@ -808,11 +808,20 @@ function CapitalPropio({ prestamos, cuotas, capitalInicial, setCapitalInicial })
       tip: "Ganancia ya cobrada en cuotas pagadas",
     },
     {
-      icon: "📊", label: "Capital Invertido + Intereses", value: pendientesTotal,
-      color: C.text, bg: "#f8fafc", border: C.border,
-      tip: "Total del capital invertido + los intereses generados por todo ese capital",
+      icon: "📈", label: "Histórico Total Cartera", value: totalAPagar,
+      color: "#2563eb", bg: "#eff6ff", border: "#bfdbfe",
+      tip: "Suma bruta de todos los créditos (Capital + Interés)",
     },
   ];
+
+  // --- ASISTENTE DE SALUD FINANCIERA ---
+  const patrimonioActual = dineroEnCaja + pendientesTotal;
+  const saldoNeto = patrimonioActual - (capitalInicial || 0);
+  const estaEnGanancia = saldoNeto >= 0;
+  const porcentajeGanancia = capitalInicial > 0 ? (saldoNeto / capitalInicial) * 100 : 0;
+  
+  // Alerta de préstamo basado en liquidez
+  const liquidezBaja = dineroEnCaja < (capitalInicial * 0.10); // Menos del 10% disponible
 
   return (
     <div>
@@ -845,6 +854,43 @@ function CapitalPropio({ prestamos, cuotas, capitalInicial, setCapitalInicial })
           {tempCap && <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>{fmtCOP(parseFloat(tempCap) || 0)}</div>}
         </Card>
       )}
+
+      {/* --- ASISTENTE DE SALUD FINANCIERA --- */}
+      <Card style={{ 
+        marginBottom: 24, 
+        background: estaEnGanancia ? "#f0fdf4" : "#fef2f2", 
+        border: `2px solid ${estaEnGanancia ? "#bbf7d0" : "#fecaca"}`,
+        display: "flex", alignItems: "center", gap: 20,
+        padding: 20
+      }}>
+        <div style={{ fontSize: 48 }}>{estaEnGanancia ? "🚀" : "🛑"}</div>
+        <div style={{ flex: 1 }}>
+          <h3 style={{ margin: "0 0 6px", fontWeight: 900, fontSize: 18, color: estaEnGanancia ? "#15803d" : "#b91c1c" }}>
+            {estaEnGanancia ? (saldoNeto === 0 ? "PUNTO DE EQUILIBRIO" : `ESTÁS EN GANANCIA: +${fmtCOP(saldoNeto)}`) : `ESTÁS EN PÉRDIDA: ${fmtCOP(saldoNeto)}`}
+          </h3>
+          <p style={{ margin: 0, fontSize: 13, color: estaEnGanancia ? "#166534" : "#991b1b", fontWeight: 700 }}>
+            {estaEnGanancia 
+              ? `Tu margen de rentabilidad es del ${porcentajeGanancia.toFixed(1)}%. Tu capital está creciendo.`
+              : `Has perdido un ${Math.abs(porcentajeGanancia).toFixed(1)}% del capital inicial. Revisa tus cobranzas.`}
+          </p>
+          
+          <div style={{ 
+            marginTop: 12, 
+            padding: "8px 12px", 
+            borderRadius: 8, 
+            background: liquidezBaja ? "#fef3c7" : "#dcfce7",
+            color: liquidezBaja ? "#92400e" : "#166534",
+            fontSize: 12.5,
+            fontWeight: 800,
+            display: "inline-block",
+            border: `1.5px solid ${liquidezBaja ? "#fcd34d" : "#86efac"}`
+          }}>
+            {liquidezBaja 
+              ? "⚠️ ALERTA: Tienes poca caja disponible. No deberías prestar más sino hasta que te paguen porque estás en números rojos de liquidez."
+              : "✅ FLUJO BUENO: Tienes buena liquidez en caja para seguir colocando préstamos."}
+          </div>
+        </div>
+      </Card>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 16, marginBottom: 32 }}>
         {metrics.map(m => (
