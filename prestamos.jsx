@@ -222,16 +222,18 @@ function useSupabaseStore(table, fieldsMapping) {
     }
   };
 
-  const deleteOne = async (idField, id) => {
-    const dbIdField = fieldsMapping[idField];
-    const { error } = await supabase.from(table).delete().eq(dbIdField, id);
-    if (error) toast.error(`Error eliminando en ${table}: ${error.message}`);
-    else {
-      setVal(prev => prev.filter(x => x[idField] !== id));
+  const refresh = async () => {
+    const { data } = await supabase.from(table).select('*');
+    if (data) {
+      setVal(data.map(d => {
+         const mapped = {};
+         for (const [sF, dF] of Object.entries(fieldsMapping)) { mapped[sF] = d[dF]; }
+         return mapped;
+      }));
     }
   };
 
-  return [val, saveOne, deleteOne, ready];
+  return [val, saveOne, deleteOne, ready, refresh];
 }
 
 // ═══════════════════════════════════════════════════════
@@ -729,7 +731,7 @@ function NuevoPrestamo({ clientes, prestamos, savePrestamo, cuotas, saveCuota })
 // ═══════════════════════════════════════════════════════
 //  CAPITAL PROPIO
 // ═══════════════════════════════════════════════════════
-function CapitalPropio({ prestamos, cuotas, capitalInicial, setCapitalInicial }) {
+function CapitalPropio({ prestamos, cuotas, capitalInicial, setCapitalInicial, deletePrestamo }) {
   const [editCap, setEditCap] = useState(false);
   const [tempCap, setTempCap] = useState("");
 
@@ -943,10 +945,19 @@ function CapitalPropio({ prestamos, cuotas, capitalInicial, setCapitalInicial })
                     <td style={{ ...sty.td, color: C.green, fontWeight: 700 }}>{fmtCOP(cobradoP)}</td>
                     <td style={{ ...sty.td, color: C.yellow, fontWeight: 700 }}>{fmtCOP(porCobrarP)}</td>
                     <td style={sty.td}>
-                      {completo
-                        ? <span style={{ background: C.greenBg, color: C.green, padding: "2px 10px", borderRadius: 99, fontSize: 11, fontWeight: 800 }}>✓ Saldado</span>
-                        : <span style={{ background: C.yellowBg, color: C.yellow, padding: "2px 10px", borderRadius: 99, fontSize: 11, fontWeight: 800 }}>{totalPagadas}/{cuotasP.length} cuotas</span>
-                      }
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {completo
+                          ? <span style={{ background: C.greenBg, color: C.green, padding: "2px 10px", borderRadius: 99, fontSize: 11, fontWeight: 800 }}>✓ Saldado</span>
+                          : <span style={{ background: C.yellowBg, color: C.yellow, padding: "2px 10px", borderRadius: 99, fontSize: 11, fontWeight: 800 }}>{totalPagadas}/{cuotasP.length} cuotas</span>
+                        }
+                        <button 
+                          style={{ ...sty.btnSm, background: C.redBg, color: C.red, border: `1px solid ${C.redBorder}`, padding: "4px 8px", margin: 0 }}
+                          onClick={() => deletePrestamo(p.prestamoId)}
+                          title="Eliminar Préstamo"
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -962,7 +973,7 @@ function CapitalPropio({ prestamos, cuotas, capitalInicial, setCapitalInicial })
 // ═══════════════════════════════════════════════════════
 //  ESTADO DE CUENTAS
 // ═══════════════════════════════════════════════════════
-function Estados({ clientes, prestamos, cuotas, saveCuota }) {
+function Estados({ clientes, prestamos, cuotas, saveCuota, deletePrestamo }) {
   const [filtroEstado,   setFiltroEstado]   = useState("todos");
   const [filtroCliente,  setFiltroCliente]  = useState("");
   const [filtroPrestamo, setFiltroPrestamo] = useState("");
@@ -1148,6 +1159,13 @@ function Estados({ clientes, prestamos, cuotas, saveCuota }) {
                         >
                           📄 PDF
                         </button>
+                        <button 
+                          style={{ ...sty.btnSm, background: C.redBg, color: C.red, border: `1px solid ${C.redBorder}` }} 
+                          onClick={() => deletePrestamo(c.prestamoId)}
+                          title="Eliminar este préstamo completo"
+                        >
+                          🗑️
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1208,15 +1226,15 @@ const appStyles = {
 //  ROOT APP
 // ═══════════════════════════════════════════════════════
 export default function App() {
-  const [clientes, saveCliente, delCliente, loadedC] = useSupabaseStore("clientes", {
+  const [clientes, saveCliente, delCliente, loadedC, refreshClientes] = useSupabaseStore("clientes", {
     clienteId: "cliente_id", nombre: "nombre", apellido: "apellido", cc: "cc", domicilio: "domicilio", telefono: "telefono"
   });
-  const [prestamos, savePrestamo, delPrestamo, loadedP] = useSupabaseStore("prestamos", {
+  const [prestamos, savePrestamo, delPrestamo, loadedP, refreshPrestamos] = useSupabaseStore("prestamos", {
     prestamoId: "prestamo_id", cliente_id: "cliente_id", importe: "importe", modalidad: "modalidad", 
     numeroCuotas: "numero_cuotas", importeCuota: "importe_cuota", totalAPagar: "total_a_pagar", fechaInicio: "fecha_inicio"
   });
   // Mapping for cuotas
-  const [cuotas, saveCuota, delCuota, loadedQ] = useSupabaseStore("cuotas", {
+  const [cuotas, saveCuota, delCuota, loadedQ, refreshCuotas] = useSupabaseStore("cuotas", {
      cuotaId: "cuota_id", prestamoId: "prestamo_id", clienteId: "cliente_id",
      numeroCuota: "numero_cuota", fechaVencimiento: "fecha_vencimiento",
      importeCuota: "importe_cuota", estado: "estado", fechaPago: "fecha_pago"
@@ -1224,6 +1242,28 @@ export default function App() {
   const [configs, saveConfig, , loadedK] = useSupabaseStore("config", {
      id: "id", value: "value"
   });
+
+  const handleEliminarPrestamo = async (prestamoId) => {
+    if (!window.confirm(`⚠️ ¿Estás seguro de eliminar el préstamo ${prestamoId}? \nEsta acción eliminará todas las cuotas de este crédito y NO se puede deshacer.`)) return;
+    
+    // 1. Delete cuotas
+    const { error: errorQ } = await supabase.from("cuotas").delete().eq("prestamo_id", prestamoId);
+    if (errorQ) {
+       toast.error("Error al eliminar cuotas: " + errorQ.message);
+       return;
+    }
+
+    // 2. Delete prestamo
+    const { error: errorP } = await supabase.from("prestamos").delete().eq("prestamo_id", prestamoId);
+    if (errorP) {
+       toast.error("Error al eliminar préstamo: " + errorP.message);
+       return;
+    }
+
+    toast.success(`Préstamo ${prestamoId} eliminado correctamente.`);
+    refreshPrestamos();
+    refreshCuotas();
+  };
 
   const [tab, setTab] = useState("dashboard");
 
@@ -1328,10 +1368,10 @@ export default function App() {
       {/* ─ Main ─ */}
       <main style={appStyles.main} className="app-main">
         {tab === "dashboard" && <Dashboard clientes={clientes} prestamos={prestamos} cuotas={cuotas} alertas={alertas} />}
-        {tab === "capital"   && <CapitalPropio prestamos={prestamos} cuotas={cuotas} capitalInicial={capitalInicial} setCapitalInicial={handleSetCapital} />}
+        {tab === "capital"   && <CapitalPropio prestamos={prestamos} cuotas={cuotas} capitalInicial={capitalInicial} setCapitalInicial={handleSetCapital} deletePrestamo={handleEliminarPrestamo} />}
         {tab === "clientes"  && <Clientes clientes={clientes} saveCliente={saveCliente} delCliente={delCliente} />}
         {tab === "nuevo"     && <NuevoPrestamo clientes={clientes} prestamos={prestamos} savePrestamo={savePrestamo} cuotas={cuotas} saveCuota={saveCuota} />}
-        {tab === "estados"   && <Estados clientes={clientes} prestamos={prestamos} cuotas={cuotas} saveCuota={saveCuota} />}
+        {tab === "estados"   && <Estados clientes={clientes} prestamos={prestamos} cuotas={cuotas} saveCuota={saveCuota} deletePrestamo={handleEliminarPrestamo} />}
       </main>
       <ToastContainer />
     </div>
