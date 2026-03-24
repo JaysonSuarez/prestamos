@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { jsPDF } from "jspdf";
+import "jspdf-autotable";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -82,6 +84,93 @@ const genId = (prefix, arr, field) => {
   const nums = arr.map(x => parseInt((x[field] || "").replace(/\D/g, "") || "0"));
   const next = nums.length ? Math.max(...nums) + 1 : 1;
   return `${prefix}-${String(next).padStart(3, "0")}`;
+};
+
+// ═══════════════════════════════════════════════════════
+//  PDF GENERATOR
+// ═══════════════════════════════════════════════════════
+const exportToPDF = (cliente, prestamo, cuotasP) => {
+  if (!cliente || !prestamo || !cuotasP) return;
+  const doc = new jsPDF();
+  
+  // Header
+  doc.setFontSize(22);
+  doc.setTextColor(22, 33, 62); // C.sidebar color
+  doc.text("ESTADO DE CUENTA - PRÉSTAMOS PRO", 105, 20, { align: "center" });
+  
+  doc.setFontSize(10);
+  doc.setTextColor(100);
+  doc.text(`Fecha de reporte: ${new Date().toLocaleString()}`, 105, 28, { align: "center" });
+  
+  // Client Info Section
+  doc.setDrawColor(226, 232, 240);
+  doc.line(14, 35, 196, 35);
+  
+  doc.setFontSize(12);
+  doc.setTextColor(30, 41, 59);
+  doc.setFont("helvetica", "bold");
+  doc.text("DATOS DEL CLIENTE", 14, 45);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Nombre: ${cliente.nombre} ${cliente.apellido}`, 14, 52);
+  doc.text(`Documento: ${cliente.cc}`, 14, 58);
+  doc.text(`Teléfono: ${cliente.telefono || "—"}`, 14, 64);
+  doc.text(`Dirección: ${cliente.domicilio || "—"}`, 14, 70);
+  
+  // Loan Info Section
+  doc.setFont("helvetica", "bold");
+  doc.text("RESUMEN DEL CRÉDITO", 110, 45);
+  doc.setFont("helvetica", "normal");
+  doc.text(`ID Préstamo: ${prestamo.prestamoId}`, 110, 52);
+  doc.text(`Capital: ${fmtCOP(prestamo.importe)}`, 110, 58);
+  doc.text(`Modalidad: ${prestamo.modalidad.charAt(0).toUpperCase() + prestamo.modalidad.slice(1)}`, 110, 64);
+  doc.text(`Total a Pagar: ${fmtCOP(prestamo.totalAPagar)}`, 110, 70);
+
+  // Financial Summary logic
+  const pagado = cuotasP.filter(c => c.estado === "pagado").reduce((s, c) => s + c.importeCuota, 0);
+  const todasPendientes = cuotasP.filter(c => getEstado(c) !== "pagado");
+  const moraTotal = todasPendientes.reduce((s, c) => s + calcMoraAcum(c.importeCuota, prestamo.modalidad, c.fechaVencimiento, c.estado), 0);
+  const porPagar = todasPendientes.reduce((s, c) => s + c.importeCuota, 0) + moraTotal;
+
+  doc.setDrawColor(233, 69, 96); // C.accent
+  doc.setFillColor(248, 250, 252);
+  doc.rect(14, 78, 182, 10, 'F');
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.text(`ESTADO ACTUAL: ${porPagar <= 0 ? "LIQUIDADO" : "DEUDA ACTIVA: " + fmtCOP(porPagar)}`, 105, 84, { align: "center" });
+
+  // Table of Cuotas
+  const head = [['#', 'Vencimiento', 'Importe', 'Estado', 'Mora', 'Pago', 'Total Pagado']];
+  const body = cuotasP.sort((a,b) => a.numeroCuota - b.numeroCuota).map(c => {
+      const mora = getEstado(c) === "mora" ? calcMoraAcum(c.importeCuota, prestamo.modalidad, c.fechaVencimiento, c.estado) : 0;
+      return [
+        c.numeroCuota,
+        fmtDate(c.fechaVencimiento),
+        fmtCOP(c.importeCuota),
+        getEstado(c).toUpperCase(),
+        mora > 0 ? fmtCOP(mora) : "—",
+        c.fechaPago ? fmtDate(c.fechaPago) : "—",
+        c.estado === "pagado" ? fmtCOP(c.importeCuota) : "—"
+      ];
+  });
+
+  doc.autoTable({
+    startY: 95,
+    head: head,
+    body: body,
+    theme: 'striped',
+    headStyles: { fillColor: [22, 33, 96], textColor: 255 }, // Dark UI blue
+    styles: { fontSize: 9, cellPadding: 3 },
+    columnStyles: { 0: { cellWidth: 10 } }
+  });
+
+  // Footer / Notes
+  const finalY = doc.lastAutoTable.finalY + 10;
+  doc.setFontSize(8);
+  doc.setTextColor(150);
+  doc.text("Este documento es un registro informativo del estado actual del crédito.", 14, finalY);
+  doc.text("Préstamos Pro System - Gestionado digitalmente.", 14, finalY + 4);
+
+  doc.save(`Estado_Cuenta_${cliente.cc}_${prestamo.prestamoId}.pdf`);
 };
 
 // ═══════════════════════════════════════════════════════
@@ -200,7 +289,7 @@ function Dashboard({ clientes, prestamos, cuotas, alertas }) {
     .filter(c => c.estado === "pagado")
     .reduce((s, c) => s + c.importeCuota, 0);
   const pendiente = cuotas
-    .filter(c => getEstado(c) === "pendiente")
+    .filter(c => getEstado(c) !== "pagado")
     .reduce((s, c) => s + c.importeCuota, 0);
   const cuotasMora = cuotas.filter(c => getEstado(c) === "mora");
   const totalMora = cuotasMora.reduce((s, c) => {
@@ -209,12 +298,12 @@ function Dashboard({ clientes, prestamos, cuotas, alertas }) {
   }, 0);
 
   const stats = [
-    { icon: "👥", label: "Clientes",     value: clientes.length,         raw: true,  color: C.blue },
-    { icon: "💵", label: "Capital prestado", value: totalPrestado,        color: C.text },
-    { icon: "📈", label: "Total a cobrar",   value: totalAPagar,          color: C.blue },
-    { icon: "✅", label: "Cobrado",          value: cobrado,              color: C.green },
-    { icon: "⏳", label: "Por cobrar",       value: pendiente,            color: C.yellow },
-    { icon: "🚨", label: "En mora",          value: totalMora,            color: C.red },
+    { icon: "👥", label: "Clientes",          value: clientes.length,  raw: true,  color: C.blue },
+    { icon: "💵", label: "Capital prestado",  value: totalPrestado,               color: C.text },
+    { icon: "📈", label: "Total a cobrar",    value: totalAPagar,                 color: C.blue },
+    { icon: "✅", label: "Cobrado",           value: cobrado,                     color: C.green },
+    { icon: "⏳", label: "Por cobrar",        value: pendiente,                   color: C.yellow },
+    { icon: "🚨", label: "En mora",           value: totalMora,                   color: C.red },
   ];
 
   const alertCfg = {
@@ -634,6 +723,193 @@ function NuevoPrestamo({ clientes, prestamos, savePrestamo, cuotas, saveCuota })
 }
 
 // ═══════════════════════════════════════════════════════
+//  CAPITAL PROPIO
+// ═══════════════════════════════════════════════════════
+function CapitalPropio({ prestamos, cuotas, capitalInicial, setCapitalInicial }) {
+  const [editCap, setEditCap] = useState(false);
+  const [tempCap, setTempCap] = useState("");
+
+  // Capital total invertido en préstamos activos (suma de importes)
+  const capitalInvertido = prestamos.reduce((s, p) => s + p.importe, 0);
+
+  // Lo que ya regresó a la caja: cuotas pagadas
+  const cobrado = cuotas
+    .filter(c => c.estado === "pagado")
+    .reduce((s, c) => s + c.importeCuota, 0);
+
+  // Cuánto falta por cobrar (cuotas pendientes + mora)
+  const pendientesTotal = cuotas
+    .filter(c => getEstado(c) !== "pagado")
+    .reduce((s, c) => {
+      const p = prestamos.find(px => px.prestamoId === c.prestamoId);
+      const mora = calcMoraAcum(c.importeCuota, p?.modalidad, c.fechaVencimiento, c.estado);
+      return s + c.importeCuota + mora;
+    }, 0);
+
+  // Ganancia = total a pagar - capital prestado (pura ganancia/interés)
+  const totalAPagar = prestamos.reduce((s, p) => s + p.totalAPagar, 0);
+  const gananciaTotal = totalAPagar - capitalInvertido;
+
+  // Ganancia ya realizada (de cuotas pagadas, restando el capital proporcional)
+  const gananciaRealizada = cobrado > 0
+    ? cobrado - (capitalInvertido > 0 ? (cobrado / totalAPagar) * capitalInvertido : 0)
+    : 0;
+
+  // Dinero que está afuera (en manos de deudores) = capital invertido - capital recuperado
+  const capitalRecuperado = cobrado > 0 && totalAPagar > 0
+    ? (cobrado / totalAPagar) * capitalInvertido
+    : 0;
+  const dineroAfuera = capitalInvertido - capitalRecuperado;
+
+  // Dinero disponible en caja = capital inicial - capital invertido + lo cobrado
+  const dineroEnCaja = (capitalInicial || 0) - capitalInvertido + cobrado;
+
+  // Total para invertir (lo que tenemos disponible)
+  const totalParaInvertir = dineroEnCaja;
+
+  const metrics = [
+    {
+      icon: "🏦", label: "Mi Capital Total", value: capitalInicial || 0,
+      color: "#7c3aed", bg: "#f5f3ff", border: "#c4b5fd",
+      tip: "Capital que pusiste para hacer préstamos",
+    },
+    {
+      icon: "💸", label: "Capital Invertido", value: capitalInvertido,
+      color: C.blue, bg: C.blueBg, border: "#93c5fd",
+      tip: "Suma de todos los préstamos otorgados",
+    },
+    {
+      icon: "🏠", label: "Dinero en Caja", value: dineroEnCaja,
+      color: C.green, bg: C.greenBg, border: C.greenBorder,
+      tip: "Capital disponible que tienes tú ahora mismo",
+    },
+    {
+      icon: "🛣️", label: "Dinero Afuera", value: dineroAfuera,
+      color: "#d97706", bg: "#fffbeb", border: "#fcd34d",
+      tip: "Capital que está en manos de los deudores",
+    },
+    {
+      icon: "📥", label: "Por Cobrar (con mora)", value: pendientesTotal,
+      color: C.yellow, bg: C.yellowBg, border: C.yellowBorder,
+      tip: "Total que te deben (cuotas pendientes + mora)",
+    },
+    {
+      icon: "🎯", label: "Ganancia Total Esperada", value: gananciaTotal,
+      color: C.green, bg: C.greenBg, border: C.greenBorder,
+      tip: "Interés total que ganarás sobre todos los préstamos",
+    },
+    {
+      icon: "✅", label: "Ganancia Realizada", value: gananciaRealizada,
+      color: "#15803d", bg: "#dcfce7", border: "#86efac",
+      tip: "Ganancia ya cobrada en cuotas pagadas",
+    },
+    {
+      icon: "📊", label: "Total Invertido + Por Cobrar", value: capitalInvertido + pendientesTotal,
+      color: C.text, bg: "#f8fafc", border: C.border,
+      tip: "Capital puesto + lo que aún te deben (valor total del portafolio)",
+    },
+  ];
+
+  return (
+    <div>
+      <div style={sty.pageHeader}>
+        <h1 style={sty.pageTitle}>💼 Capital Propio</h1>
+        <button style={sty.btnPrimary} onClick={() => { setTempCap(capitalInicial || ""); setEditCap(true); }}>
+          ✏️ Actualizar Capital
+        </button>
+      </div>
+
+      {editCap && (
+        <Card style={{ marginBottom: 24, borderLeft: `4px solid #7c3aed` }}>
+          <h3 style={{ margin: "0 0 16px", fontWeight: 800, fontSize: 16 }}>💰 Mi Capital para Préstamos</h3>
+          <p style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>
+            Ingresa el total de dinero propio que destinaste para hacer préstamos.
+          </p>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <input
+              style={{ ...sty.input, maxWidth: 280 }}
+              type="number" min={0} step={1000}
+              value={tempCap}
+              onChange={e => setTempCap(e.target.value)}
+              placeholder="Ej: 5000000"
+            />
+            <button style={{ ...sty.btnPrimary, background: "#7c3aed" }} onClick={() => { setCapitalInicial(parseFloat(tempCap) || 0); setEditCap(false); }}>
+              Guardar
+            </button>
+            <button style={sty.btnOutline} onClick={() => setEditCap(false)}>Cancelar</button>
+          </div>
+          {tempCap && <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>{fmtCOP(parseFloat(tempCap) || 0)}</div>}
+        </Card>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 16, marginBottom: 32 }}>
+        {metrics.map(m => (
+          <div key={m.label} style={{
+            background: m.bg,
+            border: `1.5px solid ${m.border}`,
+            borderRadius: 14,
+            padding: "20px 22px",
+          }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>{m.icon}</div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: m.color, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>{m.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: m.color }}>{fmtCOP(m.value)}</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>{m.tip}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Tabla resumen por préstamo */}
+      <Card style={{ padding: 0 }}>
+        <div style={{ padding: "16px 20px", fontWeight: 800, fontSize: 15, color: C.text, borderBottom: `1px solid ${C.border}` }}>
+          📋 Resumen por Préstamo
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={sty.table}>
+            <thead>
+              <tr style={{ background: "#f8fafc" }}>
+                {["Préstamo", "Cliente", "Capital Prestado", "Total a Pagar", "% Interés", "Cobrado", "Por Cobrar", "Estado"].map(h => (
+                  <th key={h} style={sty.th}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {prestamos.length === 0 && (
+                <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: C.muted }}>Sin préstamos registrados</td></tr>
+              )}
+              {prestamos.map(p => {
+                const cuotasP = cuotas.filter(c => c.prestamoId === p.prestamoId);
+                const cobradoP = cuotasP.filter(c => c.estado === "pagado").reduce((s, c) => s + c.importeCuota, 0);
+                const porCobrarP = cuotasP.filter(c => getEstado(c) !== "pagado").reduce((s, c) => s + c.importeCuota, 0);
+                const totalPagadas = cuotasP.filter(c => c.estado === "pagado").length;
+                const interesPorc = p.importe > 0 ? (((p.totalAPagar - p.importe) / p.importe) * 100).toFixed(0) : 0;
+                const completo = cuotasP.length > 0 && cuotasP.every(c => c.estado === "pagado");
+                return (
+                  <tr key={p.prestamoId} style={{ borderTop: `1px solid ${C.border}`, background: completo ? C.greenBg : "white" }}>
+                    <td style={sty.td}><span style={{ fontFamily: "monospace", fontWeight: 800, color: C.blue, fontSize: 12 }}>{p.prestamoId}</span></td>
+                    <td style={sty.td}><span style={{ fontSize: 12 }}>{p.cliente_id}</span></td>
+                    <td style={{ ...sty.td, fontWeight: 700 }}>{fmtCOP(p.importe)}</td>
+                    <td style={{ ...sty.td, fontWeight: 700, color: C.blue }}>{fmtCOP(p.totalAPagar)}</td>
+                    <td style={{ ...sty.td, textAlign: "center" }}><span style={{ background: C.blueBg, color: C.blue, padding: "2px 8px", borderRadius: 99, fontSize: 11, fontWeight: 800 }}>{interesPorc}%</span></td>
+                    <td style={{ ...sty.td, color: C.green, fontWeight: 700 }}>{fmtCOP(cobradoP)}</td>
+                    <td style={{ ...sty.td, color: C.yellow, fontWeight: 700 }}>{fmtCOP(porCobrarP)}</td>
+                    <td style={sty.td}>
+                      {completo
+                        ? <span style={{ background: C.greenBg, color: C.green, padding: "2px 10px", borderRadius: 99, fontSize: 11, fontWeight: 800 }}>✓ Saldado</span>
+                        : <span style={{ background: C.yellowBg, color: C.yellow, padding: "2px 10px", borderRadius: 99, fontSize: 11, fontWeight: 800 }}>{totalPagadas}/{cuotasP.length} cuotas</span>
+                      }
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
 //  ESTADO DE CUENTAS
 // ═══════════════════════════════════════════════════════
 function Estados({ clientes, prestamos, cuotas, saveCuota }) {
@@ -759,10 +1035,10 @@ function Estados({ clientes, prestamos, cuotas, saveCuota }) {
 
       <Card style={{ padding: 0 }}>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ ...sty.table, minWidth: 1060 }}>
+          <table style={{ ...sty.table, minWidth: 1100 }}>
             <thead>
               <tr style={{ background: "#f8fafc" }}>
-                {["ID Préstamo", "Cod. Cliente", "Nombre", "Modalidad", "Cuota #", "Vencimiento", "Importe", "Mora Acum.", "Total a Cobrar", "Días Mora", "Alerta", "Fecha Pago", "Estado", "Acción"].map(h => (
+                {["ID Préstamo", "Cod. Cliente", "Nombre", "Modalidad", "Próx. Cuota", "Vencimiento", "Val. Cuota", "Mora Acum.", "DEUDA TOTAL", "Días Mora", "Alerta", "Fecha Pago", "Estado", "Acción"].map(h => (
                   <th key={h} style={sty.th}>{h}</th>
                 ))}
               </tr>
@@ -782,7 +1058,12 @@ function Estados({ clientes, prestamos, cuotas, saveCuota }) {
                 const mora     = estado === "mora"
                   ? calcMoraAcum(c.importeCuota, prestamo?.modalidad, c.fechaVencimiento, c.estado)
                   : 0;
-                const totalCobrar = c.importeCuota + mora;
+                // Deuda total del préstamo = suma de TODAS las cuotas pendientes + mora acumulada
+                const todasPendientes = cuotas.filter(x => x.prestamoId === c.prestamoId && getEstado(x) !== "pagado");
+                const deudaTotal = todasPendientes.reduce((s, x) => {
+                  const moraCuota = calcMoraAcum(x.importeCuota, prestamo?.modalidad, x.fechaVencimiento, x.estado);
+                  return s + x.importeCuota + moraCuota;
+                }, 0);
                 const dm   = calcDiasMora(c.fechaVencimiento);
                 const tipo = getAlertType(c);
                 const rc   = rowBg[estado] || rowBg.pendiente;
@@ -797,16 +1078,27 @@ function Estados({ clientes, prestamos, cuotas, saveCuota }) {
                     <td style={{ ...sty.td, whiteSpace: "nowrap" }}>{fmtDate(c.fechaVencimiento)}</td>
                     <td style={{ ...sty.td, fontWeight: 700 }}>{fmtCOP(c.importeCuota)}</td>
                     <td style={{ ...sty.td, fontWeight: mora > 0 ? 800 : 400, color: mora > 0 ? C.red : C.muted }}>{mora > 0 ? fmtCOP(mora) : "—"}</td>
-                    <td style={{ ...sty.td, fontWeight: 800, color: mora > 0 ? C.red : C.text }}>{fmtCOP(totalCobrar)}</td>
+                    <td style={{ ...sty.td, fontWeight: 900, color: estado === "pagado" ? C.green : C.red, fontSize: 14, background: estado !== "pagado" ? "rgba(185,28,28,0.06)" : undefined }}>
+                      {estado === "pagado" ? <span style={{ color: C.green }}>✓ Saldado</span> : fmtCOP(deudaTotal)}
+                    </td>
                     <td style={{ ...sty.td, textAlign: "center", fontWeight: dm > 0 ? 800 : 400, color: dm > 0 ? C.red : C.muted }}>{dm > 0 ? `${dm}d` : "—"}</td>
                     <td style={{ ...sty.td, textAlign: "center", fontSize: 16 }}>{tipo ? alertIcons[tipo] : "—"}</td>
                     <td style={{ ...sty.td, whiteSpace: "nowrap" }}>{fmtDate(c.fechaPago)}</td>
                     <td style={sty.td}><StatusBadge estado={estado} /></td>
                     <td style={sty.td}>
-                      {estado !== "pagado"
-                        ? <button style={{ ...sty.btnSm, background: C.greenBg, color: C.green, fontWeight: 800, fontSize: 11, border: `1px solid ${C.greenBorder}` }} onClick={() => setConfirmId(c.cuotaId)}>✓ Pagar</button>
-                        : <button style={{ ...sty.btnSm, background: C.redBg, color: C.red, fontSize: 11 }} onClick={() => deshacerPago(c.cuotaId)}>↩ Anular</button>
-                      }
+                      <div style={{ display: "flex", gap: 4 }}>
+                        {estado !== "pagado"
+                          ? <button style={{ ...sty.btnSm, background: C.greenBg, color: C.green, fontWeight: 800, fontSize: 11, border: `1px solid ${C.greenBorder}` }} onClick={() => setConfirmId(c.cuotaId)}>✓ Pagar</button>
+                          : <button style={{ ...sty.btnSm, background: C.redBg, color: C.red, fontSize: 11 }} onClick={() => deshacerPago(c.cuotaId)}>↩ Anular</button>
+                        }
+                        <button 
+                          style={{ ...sty.btnSm, background: C.blueBg, color: C.blue, border: `1px solid #93c5fd` }} 
+                          onClick={() => exportToPDF(cliente, prestamo, cuotas.filter(x => x.prestamoId === c.prestamoId))}
+                          title="Descargar PDF"
+                        >
+                          📄 PDF
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -879,7 +1171,17 @@ export default function App() {
      numeroCuota: "numero_cuota", fechaVencimiento: "fecha_vencimiento",
      importeCuota: "importe_cuota", estado: "estado", fechaPago: "fecha_pago"
   });
+  const [configs, saveConfig, , loadedK] = useSupabaseStore("config", {
+     id: "id", value: "value"
+  });
+
   const [tab, setTab] = useState("dashboard");
+
+  const capitalInicial = configs.find(x => x.id === "capital_inicial")?.value || 0;
+
+  const handleSetCapital = (val) => {
+    saveConfig({ id: "capital_inicial", value: val });
+  };
 
   const prevAlertsCount = useRef(0);
 
@@ -901,7 +1203,7 @@ export default function App() {
     prevAlertsCount.current = alertas.length;
   }, [cuotas]);
 
-  if (!loadedC || !loadedP || !loadedQ) {
+  if (!loadedC || !loadedP || !loadedQ || !loadedK) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "monospace", color: C.muted, flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 32 }}>💰</div>
@@ -914,6 +1216,7 @@ export default function App() {
 
   const tabs = [
     { id: "dashboard", icon: "📊", label: "Dashboard" },
+    { id: "capital",   icon: "💼", label: "Capital Propio" },
     { id: "clientes",  icon: "👥", label: "Clientes" },
     { id: "nuevo",     icon: "➕", label: "Nuevo Préstamo" },
     { id: "estados",   icon: "📋", label: "Estado de Cuentas" },
@@ -975,6 +1278,7 @@ export default function App() {
       {/* ─ Main ─ */}
       <main style={appStyles.main} className="app-main">
         {tab === "dashboard" && <Dashboard clientes={clientes} prestamos={prestamos} cuotas={cuotas} alertas={alertas} />}
+        {tab === "capital"   && <CapitalPropio prestamos={prestamos} cuotas={cuotas} capitalInicial={capitalInicial} setCapitalInicial={handleSetCapital} />}
         {tab === "clientes"  && <Clientes clientes={clientes} saveCliente={saveCliente} delCliente={delCliente} />}
         {tab === "nuevo"     && <NuevoPrestamo clientes={clientes} prestamos={prestamos} savePrestamo={savePrestamo} cuotas={cuotas} saveCuota={saveCuota} />}
         {tab === "estados"   && <Estados clientes={clientes} prestamos={prestamos} cuotas={cuotas} saveCuota={saveCuota} />}
