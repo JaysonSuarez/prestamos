@@ -1,6 +1,6 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
-import { ToastContainer } from 'react-toastify';
+import { useState, useEffect, useRef } from "react";
+import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
 // --- Libs & Hooks ---
@@ -18,16 +18,32 @@ import { NuevoPrestamo } from "./components/sections/NuevoPrestamo";
 import { CapitalPropio } from "./components/sections/CapitalPropio";
 import { Estados } from "./components/sections/Estados";
 
-// ═══════════════════════════════════════════════════════
-//  APP ENTRY POINT (ORCHESTRATOR)
-// ═══════════════════════════════════════════════════════
+const appLayoutStyles = {
+  root: { display: "flex", height: "100vh", fontFamily: "'Segoe UI', system-ui, sans-serif", background: C.bg, overflow: "hidden" },
+  sidebar: { width: 240, background: C.sidebar, color: "white", display: "flex", flexDirection: "column", flexShrink: 0, transition: "0.25s" },
+  logo: { padding: "24px 22px", display: "flex", alignItems: "center", gap: 14, borderBottom: "1px solid rgba(255,255,255,0.08)" },
+  logoIcon: { fontSize: 32 },
+  logoTitle: { fontWeight: 900, fontSize: 18 },
+  logoSub: { fontSize: 12, color: "rgba(255,255,255,0.45)", marginTop: 2 },
+  nav: { flex: 1, padding: "18px 12px", display: "flex", flexDirection: "column", gap: 4 },
+  navBtn: {
+    display: "flex", alignItems: "center", gap: 10, padding: "12px 15px",
+    border: "none", background: "none", color: "rgba(255,255,255,0.6)",
+    borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 700,
+    textAlign: "left", width: "100%", position: "relative",
+  },
+  navBtnActive: { background: "rgba(255,255,255,0.12)", color: "white", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.1)" },
+  badge: { background: C.accent, color: "white", borderRadius: 99, fontSize: 10, fontWeight: 900, padding: "2px 8px", position: "absolute", right: 10 },
+  sidebarFooter: { padding: "18px 22px", borderTop: "1px solid rgba(255,255,255,0.08)", fontSize: 12, color: "rgba(255,255,255,0.4)" },
+  statsRow: { display: "flex", justifyContent: "space-between", marginBottom: 6 },
+  main: { flex: 1, overflow: "auto", padding: "36px 48px" },
+};
 
 export default function App() {
   const [tab, setTab] = useState("dashboard");
 
-  // --- Persistent Storage via Custom Hook ---
   const [clientes, saveCliente, delCliente, loadedC, refreshClientes] = useSupabaseStore("clientes", {
-    clienteId: "cliente_id", cc: "cc", nombre: "nombre", apellido: "apellido", telefono: "telefono"
+    clienteId: "cliente_id", cc: "cc", nombre: "nombre", apellido: "apellido", telefono: "telefono", domicilio: "domicilio"
   });
   const [prestamos, savePrestamo, delPrestamo, loadedP, refreshPrestamos] = useSupabaseStore("prestamos", {
     prestamoId: "prestamo_id", cliente_id: "cliente_id", importe: "importe", modalidad: "modalidad",
@@ -38,89 +54,84 @@ export default function App() {
     fechaVencimiento: "fecha_vencimiento", importeCuota: "importe_cuota", estado: "estado", fechaPago: "fecha_pago"
   });
 
-  // Capital Config
-  const [capitalInicial, setCapitalInicial] = useState(0);
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.from('config').select('*').eq('id', 1).single();
-      if (data) setCapitalInicial(data.capital_inicial || 0);
-    })();
-  }, []);
+  const [configs, saveConfig, , loadedK] = useSupabaseStore("config", { id: "id", value: "value", id_num: "id" });
+  
+  const capitalInicial = configs.find(x => x.id === "capital_inicial")?.value || 0;
 
   const handleSetCapital = async val => {
-    setCapitalInicial(val);
-    await supabase.from('config').upsert({ id: 1, capital_inicial: val });
+    await saveConfig({ id: "capital_inicial", value: val });
   };
 
-  // Logic for individual loan deletion (cascading)
   const handleEliminarPrestamo = async (idField, pid) => {
-    // Delete in order to respect constraints if any (Supabase manual cascade)
-    await supabase.from('cuotas').delete().eq('prestamo_id', pid);
+    if (!window.confirm("¿Confirma que desea eliminar este préstamo y todas sus cuotas?")) return;
+    await supabase.from("cuotas").delete().eq("prestamo_id", pid);
     await delPrestamo(idField, pid);
     refreshCuotas();
     refreshPrestamos();
   };
 
-  // Active Alerts
-  const alertas = useMemo(() => cuotas.filter(c => getAlertType(c) === "hoy"), [cuotas]);
+  const prevAlertsCount = useRef(0);
+  const alertasNuevas = cuotas.filter(c => getAlertType(c) !== null);
 
   useEffect(() => {
-    if (alertas.length > 0) playAlertSound();
-  }, [alertas.length]);
+    if (alertasNuevas.length > prevAlertsCount.current) {
+      toast.warn(`💰 ¡Alerta! Tienes cuotas pendientes.`, { position: "top-right", theme: "light" });
+      playAlertSound();
+    }
+    prevAlertsCount.current = alertasNuevas.length;
+  }, [alertasNuevas.length]);
 
-  if (!loadedC || !loadedP || !loadedCu) {
+  if (!loadedC || !loadedP || !loadedCu || !loadedK) {
     return (
-      <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8f7f2", color: C.accent, fontWeight: 900, fontSize: 32 }}>
-        CARGANDO SISTEMA PRO...
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "monospace", color: C.muted, flexDirection: "column", gap: 12 }}>
+        <div style={{ fontSize: 32 }}>💰</div>
+        <div>Cargando datos...</div>
       </div>
     );
   }
 
-  return (
-    <div style={{ display: "flex", minHeight: "100vh" }}>
-      <style>{appStyles}</style>
-      <ToastContainer position="top-right" autoClose={3000} />
+  const tabs = [
+    { id: "dashboard", icon: "📈", label: "Dashboard" },
+    { id: "capital", icon: "💼", label: "Capital Propio" },
+    { id: "clientes", icon: "👥", label: "Clientes" },
+    { id: "nuevo", icon: "➕", label: "Nuevo Préstamo" },
+    { id: "estados", icon: "📑", label: "Estado de Cuentas" },
+  ];
 
-      {/* Sidebar Navigation */}
-      <aside style={{ width: 280, background: C.primary, color: "white", padding: "40px 20px", display: "flex", flexDirection: "column", gap: 30, position: "fixed", top: 0, bottom: 0 }}>
-        <div style={{ padding: "0 20px", marginBottom: 20 }}>
-          <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: "-1px" }}>PRÉSTAMOS<span style={{ color: C.accent }}>PRO</span></div>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", fontWeight: 700, letterSpacing: 2, marginTop: 4 }}>SISTEMA DE CRÉDITOS V3</div>
+  return (
+    <div style={appLayoutStyles.root} className="app-root">
+      <style>{appStyles}</style>
+      <ToastContainer />
+      
+      <aside style={appLayoutStyles.sidebar} className="app-sidebar">
+        <div style={appLayoutStyles.logo} className="app-logo">
+          <span style={appLayoutStyles.logoIcon}>💰</span>
+          <div>
+            <div style={appLayoutStyles.logoTitle}>Préstamos Pro</div>
+            <div style={appLayoutStyles.logoSub}>Gestión de créditos</div>
+          </div>
         </div>
         
-        <nav style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {[
-            { id: "dashboard", label: "Dashboard", icon: "📊" },
-            { id: "capital", label: "Capital Propio", icon: "💎" },
-            { id: "clientes", label: "Clientes", icon: "👥" },
-            { id: "nuevo", label: "Nuevo Crédito", icon: "➕" },
-            { id: "estados", label: "Estado de Cuentas", icon: "📑" }
-          ].map(i => (
-            <button key={i.id} onClick={() => setTab(i.id)} style={{
-              ...sty.navBtn,
-              background: tab === i.id ? "rgba(255,255,255,0.12)" : "transparent",
-              color: tab === i.id ? "white" : "rgba(255,255,255,0.6)",
-              display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", borderRadius: 12,
-              border: "none", cursor: "pointer", fontSize: 14, fontWeight: tab === i.id ? 800 : 600,
-              boxShadow: tab === i.id ? "inset 0 0 0 1px rgba(255,255,255,0.1)" : "none",
-              transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
-            }}>
-              <span style={{ fontSize: 20, filter: tab === i.id ? "none" : "grayscale(1) opacity(0.5)" }}>{i.icon}</span>
-              {i.label}
+        <nav style={appLayoutStyles.nav} className="app-nav">
+          {tabs.map(t => (
+            <button key={t.id} style={{ ...appLayoutStyles.navBtn, ...(tab === t.id ? appLayoutStyles.navBtnActive : {}) }} onClick={() => setTab(t.id)} className="app-nav-btn">
+              <span style={{ fontSize: 18 }}>{t.icon}</span>
+              <span>{t.label}</span>
+              {t.id === "estados" && alertasNuevas.length > 0 && <span style={appLayoutStyles.badge}>{alertasNuevas.length}</span>}
             </button>
           ))}
         </nav>
-
-        <div style={{ marginTop: "auto", padding: "20px", background: "rgba(255,255,255,0.05)", borderRadius: 16 }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontWeight: 700 }}>VERSIÓN ACTUAL</div>
-          <div style={{ fontSize: 14, fontWeight: 800 }}>Release 1.0.4 - Premium</div>
+        
+        <div style={appLayoutStyles.sidebarFooter} className="app-sidebar-footer">
+          <div style={appLayoutStyles.statsRow}><span>Clientes</span><strong style={{ color: "rgba(255,255,255,0.8)" }}>{clientes.length}</strong></div>
+          <div style={appLayoutStyles.statsRow}><span>Préstamos</span><strong style={{ color: "rgba(255,255,255,0.8)" }}>{prestamos.length}</strong></div>
+          <div style={appLayoutStyles.statsRow}><span>Cuotas</span><strong style={{ color: "rgba(255,255,255,0.8)" }}>{cuotas.length}</strong></div>
         </div>
       </aside>
-
-      {/* Main Content Area */}
-      <main style={{ marginLeft: 280, flex: 1, padding: "50px 60px", background: C.bg }}>
-        {tab === "dashboard" && <Dashboard clientes={clientes} prestamos={prestamos} cuotas={cuotas} alertas={alertas} />}
-        {tab === "capital"   && <CapitalPropio prestamos={prestamos} cuotas={cuotas} capitalInicial={capitalInicial} setCapitalInicial={handleSetCapital} />}
+      
+      <main style={appLayoutStyles.main} className="app-main">
+        {tab === "dashboard" && <Dashboard clientes={clientes} prestamos={prestamos} cuotas={cuotas} alertas={alertasNuevas} />}
+        {tab === "capital"   && <CapitalPropio prestamos={prestamos} cuotas={cuotas} capitalInicial={capitalInicial} setCapitalInicial={handleSetCapital} deletePrestamo={handleEliminarPrestamo} />}
         {tab === "clientes"  && <Clientes clientes={clientes} saveCliente={saveCliente} delCliente={delCliente} />}
         {tab === "nuevo"     && <NuevoPrestamo clientes={clientes} prestamos={prestamos} savePrestamo={savePrestamo} cuotas={cuotas} saveCuota={saveCuota} />}
         {tab === "estados"   && <Estados clientes={clientes} prestamos={prestamos} cuotas={cuotas} saveCuota={saveCuota} deletePrestamo={handleEliminarPrestamo} />}

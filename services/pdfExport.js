@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 import { fmtCOP, fmtDate, calcMoraAcum, getEstado } from "../utils/helpers";
 import { toast } from "react-toastify";
 
@@ -67,7 +67,7 @@ export const exportToPDF = (cliente, prestamo, cuotas) => {
       ];
     });
 
-    doc.autoTable({
+    autoTable(doc, {
       head, body,
       startY: 90,
       theme: 'grid',

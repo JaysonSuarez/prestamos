@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { C, sty } from "../../styles/theme";
-import { todayStr, fmtCOP, addPeriod, PERIODO_DIAS, genId } from "../../utils/helpers";
+import { genId, todayStr, addPeriod, fmtCOP, fmtDate, PERIODO_DIAS } from "../../utils/helpers";
 import { Card, Inp } from "../ui";
 
 const INIT_FORM = { clienteId: "", importe: "", modalidad: "mensual", numeroCuotas: 12, fechaInicio: todayStr() };
@@ -17,12 +17,11 @@ export function NuevoPrestamo({ clientes, prestamos, savePrestamo, cuotas, saveC
     const imp = parseFloat(form.importe);
     if (!form.clienteId || !imp || imp <= 0 || !form.fechaInicio) { setPreview(null); return; }
     
-    const nCuotas = parseInt(form.numeroCuotas) || 1;
+    const nCuotasInt = parseInt(form.numeroCuotas) || 1;
     const diasPorPeriodos = PERIODO_DIAS[form.modalidad] || 30;
-    const meses = (nCuotas * diasPorPeriodos) / 30;
+    const meses = (nCuotasInt * diasPorPeriodos) / 30;
     
     const total = imp + (imp * 0.10 * meses);
-    const nCuotasInt = parseInt(form.numeroCuotas) || 1;
     
     const cuotaBase = Math.round((total / nCuotasInt) / 50) * 50;
     const primeraCuota = total - (cuotaBase * (nCuotasInt - 1));
@@ -40,7 +39,7 @@ export function NuevoPrestamo({ clientes, prestamos, savePrestamo, cuotas, saveC
   const handleRegistrar = async () => {
     if (!preview || loading) return;
     setLoading(true);
-    const prestamoId = genId("PRE", prestamos, "prestamoId");
+    const prestamoId    = genId("PRE", prestamos, "prestamoId");
     
     try {
       const nuevoPrestamo = {
@@ -69,7 +68,7 @@ export function NuevoPrestamo({ clientes, prestamos, savePrestamo, cuotas, saveC
         await saveCuota(cuota);
       }
 
-      setLocalToast(`✅ Préstamo ${prestamoId} registrado con ${parseInt(form.numeroCuotas)} cuotas`);
+      setLocalToast(`✅ Préstamo ${prestamoId} registrado correctamente`);
       setTimeout(() => setLocalToast(null), 4000);
       setForm(INIT_FORM);
     } catch (e) {
@@ -79,75 +78,95 @@ export function NuevoPrestamo({ clientes, prestamos, savePrestamo, cuotas, saveC
     }
   };
 
+  const modalidades = ["diario", "semanal", "quincenal", "mensual"];
+
   return (
     <div>
-      <h1 style={sty.pageTitle}>Solicitud de Nuevo Crédito</h1>
+      <h1 style={sty.pageTitle}>Nuevo Préstamo</h1>
 
       {localToast && (
-        <div style={{ background: C.greenBg, color: C.green, border: `1px solid ${C.greenBorder}`, borderRadius: 10, padding: "14px 20px", marginBottom: 20, fontWeight: 700, fontSize: 14 }}>
+        <div style={{ background: C.greenBg, color: C.green, border: `1px solid ${C.greenBorder}`, borderRadius: 10, padding: "14px 20px", marginBottom: 20, fontWeight: 700 }}>
           {localToast}
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32 }}>
+      <div className="form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
         <Card>
-          <h3 style={{ margin: "0 0 20px", fontWeight: 800 }}>📉 Calculadora de Crédito</h3>
-          <Inp label="Cliente" list="lclients" value={form.clienteId} onChange={e => set("clienteId", e.target.value)} placeholder="Escribe el nombre o cédula..." />
-          <datalist id="lclients">
-            {clientes.map(c => <option key={c.clienteId} value={c.clienteId}>{c.nombre} {c.apellido} ({c.cc})</option>)}
-          </datalist>
+          <h3 style={sty.sectionTitle}>Datos del crédito</h3>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <Inp label="Monto a Prestar ($)" type="number" value={form.importe} onChange={e => set("importe", e.target.value)} />
-            <Inp label="Fecha Inicio" type="date" value={form.fechaInicio} onChange={e => set("fechaInicio", e.target.value)} />
-          </div>
+          <Inp label="Cliente *">
+            <select style={sty.input} value={form.clienteId} onChange={e => set("clienteId", e.target.value)}>
+              <option value="">— Seleccionar cliente —</option>
+              {clientes.map(c => (
+                <option key={c.clienteId} value={c.clienteId}>{c.clienteId} — {c.nombre} {c.apellido}</option>
+              ))}
+            </select>
+          </Inp>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <div>
-              <label style={sty.label}>Modalidad de Cobro</label>
-              <select style={sty.input} value={form.modalidad} onChange={e => set("modalidad", e.target.value)}>
-                <option value="diario">Diario</option>
-                <option value="semanal">Semanal</option>
-                <option value="quincenal">Quincenal</option>
-                <option value="mensual">Mensual (10% interés)</option>
-              </select>
+          <Inp label="Importe del crédito (COP) *">
+            <input
+              style={sty.input} type="number"
+              value={form.importe} onChange={e => set("importe", e.target.value)}
+              placeholder="Ej: 500000"
+            />
+          </Inp>
+
+          <Inp label="Modalidad de pago">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {modalidades.map(m => (
+                <button key={m} style={{
+                  padding: "10px 8px", borderRadius: 8, cursor: "pointer", fontWeight: 700,
+                  border: `2px solid ${form.modalidad === m ? C.blue : C.border}`,
+                  background: form.modalidad === m ? C.blueBg : "white",
+                  color: form.modalidad === m ? C.blue : C.text,
+                  textTransform: "capitalize",
+                }} onClick={() => set("modalidad", m)}>{m}</button>
+              ))}
             </div>
-            <Inp label="Número de Cuotas" type="number" value={form.numeroCuotas} onChange={e => set("numeroCuotas", e.target.value)} />
-          </div>
+          </Inp>
 
-          <button style={{ ...sty.btnPrimary, width: "100%", marginTop: 24 }} onClick={handleRegistrar} disabled={loading || !preview}>
-            {loading ? "⚙️ Procesando..." : "🚀 Finalizar y Registrar Crédito"}
+          <Inp label={`Número de cuotas: ${form.numeroCuotas}`}>
+            <input type="range" min={1} max={18} value={form.numeroCuotas}
+              onChange={e => set("numeroCuotas", parseInt(e.target.value))}
+              style={{ width: "100%", accentColor: C.blue }} />
+          </Inp>
+
+          <Inp label="Fecha de ingreso">
+            <input style={sty.input} type="date" value={form.fechaInicio} onChange={e => set("fechaInicio", e.target.value)} />
+          </Inp>
+
+          <button
+            style={{ ...sty.btnPrimary, width: "100%", marginTop: 10 }}
+            onClick={handleRegistrar} disabled={!preview || loading}
+          >
+            {loading ? "Registrando..." : "Registrar Préstamo"}
           </button>
         </Card>
 
-        {preview ? (
-          <Card style={{ border: `1px solid ${C.accent}`, background: "#fffdf9" }}>
-            <h3 style={{ margin: "0 0 20px", fontWeight: 800, color: C.accent }}>📑 Resumen del Crédito</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={sty.rowInfo}><span>Cliente:</span><strong>{preview.cliente?.nombre} {preview.cliente?.apellido}</strong></div>
-              <div style={sty.rowInfo}><span>Capital inicial:</span><strong>{fmtCOP(preview.imp)}</strong></div>
-              <div style={sty.rowInfo}><span>Interés calculado (10%):</span><strong>{fmtCOP(preview.total - preview.imp)}</strong></div>
-              <div style={sty.rowInfo}><span>Monto total a devolver:</span><strong style={{ fontSize: 18, color: C.accent }}>{fmtCOP(preview.total)}</strong></div>
-              <div style={sty.rowInfo}><span>Valor de cada cuota:</span><strong>{fmtCOP(preview.cuota)}</strong></div>
-            </div>
+        <Card style={{ borderColor: preview ? C.blue : C.border, borderWidth: preview ? 2 : 1 }}>
+          <h3 style={sty.sectionTitle}>Vista previa</h3>
 
-            <div style={{ marginTop: 20, borderTop: `1.5px dashed ${C.border}`, paddingTop: 20 }}>
-              <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 12 }}>🗓 Calendario de Vencimientos</div>
-              <div style={{ maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+          {!preview && <p style={{ color: C.muted, textAlign: "center", padding: "40px 0" }}>Selecciona un cliente e importe</p>}
+
+          {preview && (
+            <>
+              <div style={{ display: "grid", gap: 10, marginBottom: 20 }}>
+                <div style={sty.rowInfo}><span>Capital</span><strong>{fmtCOP(preview.imp)}</strong></div>
+                <div style={sty.rowInfo}><span>Total a Pagar</span><strong>{fmtCOP(preview.total)}</strong></div>
+                <div style={sty.rowInfo}><span>Cuotas</span><strong>{form.numeroCuotas} de {fmtCOP(preview.cuota)}</strong></div>
+              </div>
+              <div className="table-scroll" style={{ overflowY: "auto", maxHeight: 300, borderRadius: 8, border: `1px solid ${C.border}` }}>
                 {preview.lista.map(c => (
-                  <div key={c.num} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "8px 12px", background: C.bg, borderRadius: 8 }}>
-                    <span>Cuota #{c.num} — {c.fecha}</span>
-                    <strong style={{ color: C.secondary }}>{fmtCOP(c.importe)}</strong>
+                  <div key={c.num} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", borderBottom: "1px solid #f1f5f9", fontSize: 13 }}>
+                    <span>Cuota {c.num}</span>
+                    <span>{fmtDate(c.fecha)}</span>
+                    <strong style={{ color: C.blue }}>{fmtCOP(c.importe)}</strong>
                   </div>
                 ))}
               </div>
-            </div>
-          </Card>
-        ) : (
-          <div style={{ border: `2px dashed ${C.border}`, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontWeight: 700 }}>
-            Completa los datos para ver el resumen
-          </div>
-        )}
+            </>
+          )}
+        </Card>
       </div>
     </div>
   );

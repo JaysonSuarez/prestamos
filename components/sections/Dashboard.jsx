@@ -1,89 +1,104 @@
 import { C, sty } from "../../styles/theme";
-import { fmtCOP } from "../../utils/helpers";
-import { Card, StatusBadge } from "../ui";
+import { fmtCOP, calcDiasMora, calcDiasHasta, getAlertType, getEstado, calcMoraAcum } from "../../utils/helpers";
+import { Card } from "../ui";
 
 export function Dashboard({ clientes, prestamos, cuotas, alertas }) {
+  // --- NEW LOGIC (KEEP): Filter only active loans (non-fully paid) ---
   const prestamosActivos = prestamos.filter(p => {
     const cuotasP = cuotas.filter(c => c.prestamoId === p.prestamoId);
     return cuotasP.some(c => c.estado !== "pagado");
   });
 
-  const totalCap = prestamosActivos.reduce((a, b) => a + b.importe, 0);
-  const totalInt = prestamosActivos.reduce((a, b) => a + (b.totalAPagar - b.importe), 0);
-  const recupCap = cuotas.filter(c => c.estado === "pagado").reduce((a, b) => a + b.importeCuota, 0);
-  const m = cuotas.filter(c => c.estado === "mora");
+  const totalPrestadoActivo = prestamosActivos.reduce((s, p) => s + p.importe, 0);
+  const totalACobrarActivo = prestamosActivos.reduce((s, p) => s + p.totalAPagar, 0);
+  
+  const cobrado = cuotas
+    .filter(c => c.estado === "pagado")
+    .reduce((s, c) => s + c.importeCuota, 0);
+    
+  const pendienteActivo = cuotas
+    .filter(c => {
+       const p = prestamosActivos.find(px => px.prestamoId === c.prestamoId);
+       return p && c.estado !== "pagado";
+    })
+    .reduce((s, c) => s + c.importeCuota, 0);
 
-  const Stat = ({ label, val, color }) => (
-    <Card compact style={{ borderLeft: `6px solid ${color}`, minWidth: 220 }}>
-      <div style={{ color: C.muted, fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 900, color: C.primary }}>{val}</div>
-    </Card>
-  );
+  const cuotasMora = cuotas.filter(c => getEstado(c) === "mora");
+  const totalMora = cuotasMora.reduce((s, c) => {
+    const p = prestamos.find(px => px.prestamoId === c.prestamoId);
+    return s + calcMoraAcum(c.importeCuota, p?.modalidad, c.fechaVencimiento, c.estado);
+  }, 0);
+
+  // --- OLD LOOK (REVERT): Stats icons and labels ---
+  const stats = [
+    { icon: "👥", label: "Clientes",          value: clientes.length,  raw: true,  color: C.blue },
+    { icon: "💼", label: "Capital Prestado",  value: totalPrestadoActivo,          color: C.text },
+    { icon: "📈", label: "Total a Cobrar",    value: totalACobrarActivo,           color: C.blue },
+    { icon: "✅", label: "Cobrado",           value: cobrado,                      color: C.green },
+    { icon: "⏳", label: "Por Cobrar",        value: pendienteActivo,              color: C.yellow },
+    { icon: "🚨", label: "Interés Mora",      value: totalMora,                    color: C.red },
+  ];
+
+  const alertCfg = {
+    proximo:       { icon: "🔔", label: "Vence pronto",     bg: C.yellowBg, color: C.yellow },
+    hoy:           { icon: "⚠️", label: "Vence HOY",        bg: "#fef3c7",  color: "#92400e" },
+    "mora-reciente": { icon: "🚨", label: "Mora reciente",  bg: C.redBg,    color: C.red },
+    mora:          { icon: "🚨", label: "En mora",          bg: C.redBg,    color: C.red },
+  };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
-      <header>
-        <h1 style={sty.pageTitle}>Dashboard Operativo</h1>
-        <p style={{ color: C.muted, marginTop: -20, fontWeight: 500 }}>Control de cartera activa y alertas de cobro</p>
-      </header>
+    <div>
+      <h1 style={sty.pageTitle}>Dashboard</h1>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 20 }}>
-        <Stat label="Capital Prestado (Activo)" val={fmtCOP(totalCap)} color={C.accent} />
-        <Stat label="Intereses por Cobrar" val={fmtCOP(totalInt)} color={C.secondary} />
-        <Stat label="Total Cartera Activa" val={fmtCOP(totalCap + totalInt)} color={C.primary} />
-        <Stat label="Capital Recuperado" val={fmtCOP(recupCap)} color={C.green} />
+      {/* Stats grid (Old Design) */}
+      <div className="stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14, marginBottom: 28 }}>
+        {stats.map(s => (
+          <div key={s.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
+            <div style={{ fontSize: 26, marginBottom: 8 }}>{s.icon}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1 }}>{s.label}</div>
+            <div style={{ fontSize: 19, fontWeight: 800, color: s.color, marginTop: 4 }}>
+              {s.raw ? s.value : fmtCOP(s.value)}
+            </div>
+          </div>
+        ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", gap: 30 }}>
+      {/* Alertas (Old Design) */}
+      {alertas.length > 0 && (
         <Card>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20, alignItems: "center" }}>
-            <h3 style={{ margin: 0, fontWeight: 800 }}>⚡ Recordatorios de Hoy</h3>
-            <span style={{ fontSize: 12, background: C.bg, padding: "5px 12px", borderRadius: 20, fontWeight: 700 }}>{alertas.length} cuotas</span>
+          <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 16, color: C.text }}>
+            🔔 Alertas activas
+            <span style={{ background: C.red, color: "#fff", borderRadius: 99, fontSize: 11, padding: "2px 9px", marginLeft: 10 }}>{alertas.length}</span>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {alertas.length === 0 ? (
-              <div style={{ padding: 40, textAlign: "center", color: C.muted, fontWeight: 600 }}>No hay cobros pendientes para hoy</div>
-            ) : alertas.map(a => {
-              const cli = clientes.find(c => c.clienteId === a.clienteId);
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {alertas.map(c => {
+              const tipo = getAlertType(c);
+              const al = alertCfg[tipo] || alertCfg.mora;
+              const dm = calcDiasMora(c.fechaVencimiento);
+              const dh = calcDiasHasta(c.fechaVencimiento);
               return (
-                <div key={a.cuotaId} style={{ display: "flex", justifyContent: "space-between", padding: 16, background: C.bg, borderRadius: 12, border: `1px solid ${C.border}` }}>
+                <div key={c.cuotaId} style={{ display: "flex", gap: 12, alignItems: "center", background: al.bg, borderRadius: 8, padding: "10px 14px" }}>
+                  <span style={{ fontSize: 20 }}>{al.icon}</span>
                   <div>
-                    <div style={{ fontWeight: 800, fontSize: 14 }}>{cli?.nombre} {cli?.apellido}</div>
-                    <div style={{ fontSize: 12, color: C.muted }}>Ref: {a.cuotaId} · Cuota {a.numeroCuota}</div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontWeight: 900, fontSize: 15, color: C.primary }}>{fmtCOP(a.importeCuota)}</div>
-                    <StatusBadge val="Hoy" />
+                    <div style={{ fontWeight: 700, fontSize: 13, color: al.color }}>{al.label}</div>
+                    <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
+                      {c.cuotaId} · Cuota #{c.numeroCuota} · {fmtCOP(c.importeCuota)} · Vence: {c.fechaVencimiento}
+                      {dm > 0 && <strong style={{ color: C.red }}> · {dm} día{dm !== 1 ? "s" : ""} de mora</strong>}
+                      {dh >= 0 && dh <= 3 && dm === 0 && ` · en ${dh} día${dh !== 1 ? "s" : ""}`}
+                    </div>
                   </div>
                 </div>
               );
             })}
           </div>
         </Card>
+      )}
 
-        <Card>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20, alignItems: "center" }}>
-            <h3 style={{ margin: 0, fontWeight: 800 }}>🚨 Carteras en Mora</h3>
-            <span style={{ fontSize: 12, background: C.redBg, color: C.red, padding: "5px 12px", borderRadius: 20, fontWeight: 700 }}>{m.length} cuotas</span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {m.length === 0 ? (
-              <div style={{ padding: 40, textAlign: "center", color: C.muted, fontWeight: 600 }}>Cartera 100% al día</div>
-            ) : m.slice(0, 5).map(a => {
-              const cli = clientes.find(c => c.clienteId === a.clienteId);
-              return (
-                <div key={a.cuotaId} style={{ display: "flex", justifyContent: "space-between", padding: 16, border: `1px solid ${C.redBorder}`, background: "#fff5f5", borderRadius: 12 }}>
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: 14, color: C.red }}>{cli?.nombre} {cli?.surname}</div>
-                    <div style={{ fontSize: 12, color: C.muted }}>Venció: {a.fechaVencimiento}</div>
-                  </div>
-                  <div style={{ textAlign: "right", fontWeight: 900, color: C.red }}>{fmtCOP(a.importeCuota)}</div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      </div>
+      {alertas.length === 0 && (
+        <div style={{ textAlign: "center", color: C.muted, padding: "40px 0", fontSize: 14 }}>
+          ✅ Sin alertas activas por ahora
+        </div>
+      )}
     </div>
   );
 }

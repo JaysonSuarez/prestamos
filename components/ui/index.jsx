@@ -1,7 +1,7 @@
 import { C } from "../../styles/theme";
 
-export const Card = ({ children, style = {}, compact = false }) => (
-  <div className={compact ? "card-compact" : ""} style={{ 
+export const Card = ({ children, style = {} }) => (
+  <div className="card-compact" style={{ 
     background: C.card, 
     border: `1px solid ${C.border}`, 
     borderRadius: 16, 
@@ -14,25 +14,28 @@ export const Card = ({ children, style = {}, compact = false }) => (
   </div>
 );
 
-export const StatusBadge = ({ val }) => {
-  const isOk = val === "pagado" || val === "activo" || val === "al día";
+export const StatusBadge = ({ estado }) => {
+  const cfg = {
+    pagado:    { bg: C.greenBg,  color: C.green,  icon: "✅", label: "Pagado" },
+    pendiente: { bg: C.yellowBg, color: C.yellow, icon: "⏳", label: "Pendiente" },
+    mora:      { bg: C.redBg,    color: C.red,    icon: "!", label: "En Mora" },
+  };
+  const s = cfg[estado] || cfg.pendiente;
   return (
-    <span style={{ 
-      padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, textTransform: "uppercase",
-      background: isOk ? C.greenBg : C.redBg, color: isOk ? C.green : C.red 
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 4,
+      background: s.bg, color: s.color,
+      padding: "3px 10px", borderRadius: 99,
+      fontSize: 11, fontWeight: 800, whiteSpace: "nowrap",
     }}>
-      {val}
+      {s.icon} {s.label}
     </span>
   );
 };
 
-export const Inp = ({ label, ...props }) => (
+export const Inp = ({ label, children }) => (
   <div style={{ marginBottom: 16 }}>
-    {label && <label style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, display: "block", color: C.secondary }}>{label}</label>}
-    <input style={{
-      width: "100%", padding: "14px 18px", borderRadius: 12, outline: "none",
-      border: `1.5px solid ${C.border}`, background: "#fdfdfb", fontSize: 15,
-      transition: "all 0.2s ease"
-    }} {...props} />
+    {label && <label style={{ display: "block", fontSize: 11, fontWeight: 800, color: C.muted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</label>}
+    {children}
   </div>
 );
