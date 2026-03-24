@@ -808,9 +808,9 @@ function CapitalPropio({ prestamos, cuotas, capitalInicial, setCapitalInicial })
       tip: "Ganancia ya cobrada en cuotas pagadas",
     },
     {
-      icon: "📊", label: "Total Invertido + Por Cobrar", value: capitalInvertido + pendientesTotal,
+      icon: "📊", label: "Valor Total del Negocio", value: dineroEnCaja + pendientesTotal,
       color: C.text, bg: "#f8fafc", border: C.border,
-      tip: "Capital puesto + lo que aún te deben (valor total del portafolio)",
+      tip: "Dinero en caja + Lo que te deben (Este es tu patrimonio total real)",
     },
   ];
 
