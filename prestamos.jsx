@@ -1,7 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { ToastContainer, toast } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+import { toast } from 'react-toastify';
 
 // --- Libs & Hooks ---
 import { supabase } from "./lib/supabase";
@@ -101,7 +100,6 @@ export default function App() {
   return (
     <div style={appLayoutStyles.root} className="app-root">
       <style>{appStyles}</style>
-      <ToastContainer />
       
       <aside style={appLayoutStyles.sidebar} className="app-sidebar">
         <div style={appLayoutStyles.logo} className="app-logo">
@@ -126,6 +124,20 @@ export default function App() {
           <div style={appLayoutStyles.statsRow}><span>Clientes</span><strong style={{ color: "rgba(255,255,255,0.8)" }}>{clientes.length}</strong></div>
           <div style={appLayoutStyles.statsRow}><span>Préstamos</span><strong style={{ color: "rgba(255,255,255,0.8)" }}>{prestamos.length}</strong></div>
           <div style={appLayoutStyles.statsRow}><span>Cuotas</span><strong style={{ color: "rgba(255,255,255,0.8)" }}>{cuotas.length}</strong></div>
+          
+          <button 
+            onClick={() => supabase.auth.signOut()} 
+            style={{ 
+              marginTop: 15, width: "100%", padding: "10px", 
+              background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", 
+              borderRadius: 8, color: "rgba(255,255,255,0.6)", cursor: "pointer", 
+              fontSize: 12, fontWeight: 600, transition: "0.2s" 
+            }}
+            onMouseOver={(e) => e.target.style.background = "rgba(255, 50, 50, 0.1)"}
+            onMouseOut={(e) => e.target.style.background = "rgba(255,255,255,0.05)"}
+          >
+            Cerrar Sesión 🚪
+          </button>
         </div>
       </aside>
       
