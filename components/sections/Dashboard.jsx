@@ -26,7 +26,7 @@ export function Dashboard({ clientes, prestamos, cuotas, alertas }) {
   const cuotasMora = cuotas.filter(c => getEstado(c) === "mora");
   const totalMora = cuotasMora.reduce((s, c) => {
     const p = prestamos.find(px => px.prestamoId === c.prestamoId);
-    return s + calcMoraAcum(c.importeCuota, p?.modalidad, c.fechaVencimiento, c.estado);
+    return s + calcMoraAcum(p?.importe, p?.modalidad, c.fechaVencimiento, c.estado);
   }, 0);
 
   // --- OLD LOOK (REVERT): Stats icons and labels ---

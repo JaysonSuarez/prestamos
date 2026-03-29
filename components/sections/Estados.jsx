@@ -72,7 +72,7 @@ export function Estados({ clientes, prestamos, cuotas, saveCuota, deletePrestamo
       // Calculate total debt for this loan (sum of all unpaid installments + their mora)
       const unpaidCuotas = cuotasP.filter(x => x.estado !== "pagado");
       const totalMora = unpaidCuotas.reduce((sum, c) => {
-        return sum + calcMoraAcum(c.importeCuota, p?.modalidad, c.fechaVencimiento, c.estado);
+        return sum + calcMoraAcum(p.importe, p?.modalidad, c.fechaVencimiento, c.estado);
       }, 0);
       const totalPendingPrincipal = unpaidCuotas.reduce((sum, c) => sum + c.importeCuota, 0);
 
@@ -148,7 +148,7 @@ export function Estados({ clientes, prestamos, cuotas, saveCuota, deletePrestamo
       {confirmId && (() => {
         const c = cuotas.find(x => x.cuotaId === confirmId);
         const p = prestamos.find(x => x.prestamoId === c?.prestamoId);
-        const mora = calcMoraAcum(c.importeCuota, p?.modalidad, c.fechaVencimiento, c.estado);
+        const mora = calcMoraAcum(p?.importe, p?.modalidad, c.fechaVencimiento, c.estado);
         const total = c.importeCuota + mora;
         return (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }}>

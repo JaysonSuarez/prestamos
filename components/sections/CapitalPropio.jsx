@@ -28,7 +28,7 @@ export function CapitalPropio({ prestamos, cuotas, capitalInicial, setCapitalIni
     })
     .reduce((acc, c) => {
        const p = prestamosActivos.find(px => px.prestamoId === c.prestamoId);
-       const mora = calcMoraAcum(c.importeCuota, p?.modalidad, c.fechaVencimiento, c.estado);
+       const mora = calcMoraAcum(p?.importe, p?.modalidad, c.fechaVencimiento, c.estado);
        const ratio = p.totalAPagar > 0 ? ((p.totalAPagar - p.importe) / p.totalAPagar) : 0;
        return acc + (c.importeCuota * ratio) + mora;
     }, 0);

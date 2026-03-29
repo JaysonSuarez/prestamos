@@ -40,11 +40,11 @@ export const calcDiasHasta = fv => {
   return Math.floor((v - hoy) / 86400000);
 };
 
-export const calcMoraAcum = (importeCuota, modalidad, fechaVenc, estadoCuota) => {
+export const calcMoraAcum = (capitalPrincipal, modalidad, fechaVenc, estadoCuota) => {
   if (estadoCuota === "pagado") return 0;
   const dias = calcDiasMora(fechaVenc);
   if (dias <= 0) return 0;
-  const moraDiaria = (importeCuota * 0.10) / (PERIODO_DIAS[modalidad] || 30);
+  const moraDiaria = (capitalPrincipal * 0.10) / (PERIODO_DIAS[modalidad] || 30);
   return moraDiaria * dias;
 };
 
