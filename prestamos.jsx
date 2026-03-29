@@ -53,7 +53,7 @@ export default function App() {
     fechaVencimiento: "fecha_vencimiento", importeCuota: "importe_cuota", estado: "estado", fechaPago: "fecha_pago"
   });
 
-  const [configs, saveConfig, , loadedK] = useSupabaseStore("config", { id: "id", value: "value", id_num: "id" });
+  const [configs, saveConfig, , loadedK] = useSupabaseStore("config", { id: "id", value: "value" });
   
   const capitalInicial = configs.find(x => x.id === "capital_inicial")?.value || 0;
 

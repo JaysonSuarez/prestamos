@@ -37,7 +37,9 @@ export function useSupabaseStore(table, fieldsMapping) {
   const saveOne = async (item) => {
     const dbItem = {};
     for (const [stateField, dbField] of Object.entries(fieldsMapping)) {
-      dbItem[dbField] = item[stateField];
+      if (item[stateField] !== undefined) {
+        dbItem[dbField] = item[stateField];
+      }
     }
     const { error } = await supabase.from(table).upsert(dbItem);
     if (error) toast.error(`Error guardando ${table}: ${error.message}`);
