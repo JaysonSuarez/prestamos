@@ -47,39 +47,54 @@ export function Estados({ clientes, prestamos, cuotas, saveCuota, deletePrestamo
       }
     });
   } else {
-    // Show individual CUOTAS for active loans
-    cuotas.forEach(c => {
-      const cuotasP = cuotas.filter(x => x.prestamoId === c.prestamoId);
+    // Show only the next pending installment for each loan
+    prestamos.forEach(p => {
+      const cuotasP = cuotas.filter(x => x.prestamoId === p.prestamoId);
+      if (cuotasP.length === 0) return;
+      
       const estaSaldado = cuotasP.every(x => x.estado === "pagado");
       if (estaSaldado) return; // Hide paid loans from other views
 
-      const e = getEstado(c);
-      if (filtroEstado !== "todos" && e !== filtroEstado) return;
-      if (filtroCliente && c.clienteId !== filtroCliente) return;
-      if (filtroPrestamo && c.prestamoId !== filtroPrestamo) return;
+      // Find the next installment to pay (the first one not paid)
+      const nextCuota = [...cuotasP]
+        .filter(x => x.estado !== "pagado")
+        .sort((a, b) => a.numeroCuota - b.numeroCuota)[0];
 
-      const p = prestamos.find(x => x.prestamoId === c.prestamoId);
-      const cli = clientes.find(x => x.clienteId === c.clienteId);
-      const mora = e === "mora" ? calcMoraAcum(c.importeCuota, p?.modalidad, c.fechaVencimiento, c.estado) : 0;
-      const dm = calcDiasMora(c.fechaVencimiento);
+      if (!nextCuota) return;
+
+      const e = getEstado(nextCuota);
+      if (filtroEstado !== "todos" && e !== filtroEstado) return;
+      if (filtroCliente && p.cliente_id !== filtroCliente) return;
+      if (filtroPrestamo && p.prestamoId !== filtroPrestamo) return;
+
+      const cli = clientes.find(x => x.clienteId === p.cliente_id);
+      
+      // Calculate total debt for this loan (sum of all unpaid installments + their mora)
+      const unpaidCuotas = cuotasP.filter(x => x.estado !== "pagado");
+      const totalMora = unpaidCuotas.reduce((sum, c) => {
+        return sum + calcMoraAcum(c.importeCuota, p?.modalidad, c.fechaVencimiento, c.estado);
+      }, 0);
+      const totalPendingPrincipal = unpaidCuotas.reduce((sum, c) => sum + c.importeCuota, 0);
+
+      const dm = calcDiasMora(nextCuota.fechaVencimiento);
 
       displayItems.push({
         type: "cuota",
-        cuotaId: c.cuotaId,
-        prestamoId: c.prestamoId,
-        clienteId: c.clienteId,
+        cuotaId: nextCuota.cuotaId,
+        prestamoId: nextCuota.prestamoId,
+        clienteId: nextCuota.clienteId,
         nombre: `${cli?.nombre} ${cli?.apellido}`,
         modalidad: p?.modalidad,
-        numeroCuota: c.numeroCuota,
-        vencimiento: c.fechaVencimiento,
-        importe: c.importeCuota,
-        mora: mora,
-        deudaTotal: c.importeCuota + mora,
+        numeroCuota: `${nextCuota.numeroCuota} / ${cuotasP.length}`,
+        vencimiento: nextCuota.fechaVencimiento,
+        importe: nextCuota.importeCuota,
+        mora: totalMora,
+        deudaTotal: totalPendingPrincipal + totalMora,
         dm: dm,
-        tipo: getEstado(c) === "mora" ? "mora" : (calcDiasHasta(c.fechaVencimiento) <= 3 ? "proximo" : null),
-        fechaPago: c.fechaPago,
+        tipo: getEstado(nextCuota) === "mora" ? "mora" : (calcDiasHasta(nextCuota.fechaVencimiento) <= 3 ? "proximo" : null),
+        fechaPago: nextCuota.fechaPago,
         estado: e,
-        rawCuota: c,
+        rawCuota: nextCuota,
         rawPrestamo: p,
         rawCliente: cli
       });
