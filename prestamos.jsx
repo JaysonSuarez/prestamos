@@ -401,8 +401,8 @@ function Portfolio({
   const cobrado = cuotas
       .filter((c) => c.estado === "pagado")
       .reduce((s, c) => s + c.importeCuota, 0),
-    original = prestamos.reduce((s, p) => s + p.importe, 0),
-    caja = capital - original + cobrado;
+    capitalPrestadoActivo = activeLoans.reduce((s, p) => s + p.importe, 0),
+    caja = capital - capitalPrestadoActivo + cobrado;
   const invertido = activeLoans.reduce(
     (s, p) =>
       s +
@@ -505,8 +505,7 @@ function Portfolio({
     );
   }
   function dashboard() {
-    const totalActive = activeLoans.reduce((s, p) => s + p.importe, 0),
-      totalCollect = activeLoans.reduce((s, p) => s + p.totalAPagar, 0);
+    const totalCollect = activeLoans.reduce((s, p) => s + p.totalAPagar, 0);
     return (
       <>
         <Heading
@@ -564,7 +563,7 @@ function Portfolio({
           />
           <Metric
             label="Capital prestado"
-            value={cop(totalActive)}
+            value={cop(capitalPrestadoActivo)}
             note="Importe original de los préstamos activos"
             icon={Wallet}
           />
@@ -726,11 +725,11 @@ function Portfolio({
         note: "El saldo disponible según los movimientos del negocio.",
         rows: [
           ["Mi capital total", capital],
-          ["− Capital prestado histórico", -original],
+          ["− Capital prestado en préstamos activos", -capitalPrestadoActivo],
           ["+ Cobrado de todos los préstamos", cobrado],
         ],
         explanation:
-          "La caja incluye pagos recibidos de todos los préstamos. Un valor negativo refleja un faltante de liquidez según los registros actuales.",
+          "Estimación: capital total configurado menos el capital original de los préstamos activos, más los cobros recibidos. No incluye gastos, retiros ni aportes externos que no estén registrados en el sistema.",
       },
       intereses: {
         label: "Intereses por cobrar",
