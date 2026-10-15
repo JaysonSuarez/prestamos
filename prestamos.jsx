@@ -401,8 +401,9 @@ function Portfolio({
   const cobrado = cuotas
       .filter((c) => c.estado === "pagado")
       .reduce((s, c) => s + c.importeCuota, 0),
+    original = prestamos.reduce((s, p) => s + p.importe, 0),
     capitalPrestadoActivo = activeLoans.reduce((s, p) => s + p.importe, 0),
-    caja = capital - capitalPrestadoActivo + cobrado;
+    caja = capital - original + cobrado;
   const invertido = activeLoans.reduce(
     (s, p) =>
       s +
@@ -725,11 +726,11 @@ function Portfolio({
         note: "El saldo disponible según los movimientos del negocio.",
         rows: [
           ["Mi capital total", capital],
-          ["− Capital prestado en préstamos activos", -capitalPrestadoActivo],
+          ["− Capital prestado histórico", -original],
           ["+ Cobrado de todos los préstamos", cobrado],
         ],
         explanation:
-          "Estimación: capital total configurado menos el capital original de los préstamos activos, más los cobros recibidos. No incluye gastos, retiros ni aportes externos que no estén registrados en el sistema.",
+          "La caja se calcula con el capital total configurado, todos los desembolsos históricos y los pagos recibidos. No incluye gastos, retiros ni aportes externos que no estén registrados en el sistema.",
       },
       intereses: {
         label: "Intereses por cobrar",
