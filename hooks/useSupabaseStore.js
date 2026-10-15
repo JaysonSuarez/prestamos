@@ -1,57 +1,77 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { toast } from "react-toastify";
 
 export function useSupabaseStore(table, fieldsMapping) {
-  const [val, setVal] = useState([]);
+  const [items, setItems] = useState([]);
   const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      const { data, error } = await supabase.from(table).select('*');
-      if (!error && data) {
-        const mapped = data.map(item => {
-          const newItem = {};
-          for (const [stateField, dbField] of Object.entries(fieldsMapping)) {
-             newItem[stateField] = item[dbField];
-          }
-          return newItem;
-        });
-        setVal(mapped);
-      }
-      setReady(true);
-    })();
+  const [loadError, setLoadError] = useState(null);
+  const mapping = useRef(fieldsMapping);
+  const refresh = useCallback(async () => {
+    const { data, error } = await supabase.from(table).select("*");
+    if (error) throw error;
+    setItems(
+      (data || []).map((row) =>
+        Object.fromEntries(
+          Object.entries(mapping.current).map(([field, column]) => [
+            field,
+            row[column],
+          ]),
+        ),
+      ),
+    );
+    setLoadError(null);
   }, [table]);
-
-  const refresh = async () => {
-    const { data } = await supabase.from(table).select('*');
-    if (data) {
-      setVal(data.map(d => {
-         const mapped = {};
-         for (const [sF, dF] of Object.entries(fieldsMapping)) { mapped[sF] = d[dF]; }
-         return mapped;
-      }));
-    }
-  };
-
+  useEffect(() => {
+    let mounted = true;
+    setReady(false);
+    refresh()
+      .catch((error) => {
+        if (mounted) setLoadError(error);
+      })
+      .finally(() => {
+        if (mounted) setReady(true);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [refresh]);
   const saveOne = async (item) => {
-    const dbItem = {};
-    for (const [stateField, dbField] of Object.entries(fieldsMapping)) {
-      if (item[stateField] !== undefined) {
-        dbItem[dbField] = item[stateField];
+    const encode = (value) =>
+      Object.fromEntries(
+        Object.entries(mapping.current)
+          .filter(([field]) => value[field] !== undefined)
+          .map(([field, column]) => [column, value[field]]),
+      );
+    const { error } = await supabase
+      .from(table)
+      .upsert(Array.isArray(item) ? item.map(encode) : encode(item));
+    if (error) throw error;
+    const saved = Array.isArray(item) ? item : [item];
+    const primaryField = Object.keys(mapping.current)[0];
+    setItems(current => {
+      const next = [...current];
+      for (const row of saved) {
+        const index = next.findIndex(existing => existing[primaryField] === row[primaryField]);
+        if (index >= 0) next[index] = { ...next[index], ...row };
+        else next.push(row);
       }
-    }
-    const { error } = await supabase.from(table).upsert(dbItem);
-    if (error) toast.error(`Error guardando ${table}: ${error.message}`);
-    else refresh();
+      return next;
+    });
+    await refresh().catch(() => {
+      toast.warn("Los cambios se guardaron, pero no se pudo actualizar la vista. Recarga para sincronizar.");
+    });
   };
-
-  const deleteOne = async (idField, idVal) => {
-    const dbField = fieldsMapping[idField] || idField;
-    const { error } = await supabase.from(table).delete().eq(dbField, idVal);
-    if (error) toast.error(`Error eliminando en ${table}: ${error.message}`);
-    else refresh();
+  const deleteOne = async (field, value) => {
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq(mapping.current[field] || field, value);
+    if (error) throw error;
+    setItems(current => current.filter(item => item[field] !== value));
+    await refresh().catch(() => {
+      toast.warn("El registro se eliminó, pero no se pudo actualizar la vista. Recarga para sincronizar.");
+    });
   };
-
-  return [val, saveOne, deleteOne, ready, refresh];
+  return [items, saveOne, deleteOne, ready, refresh, loadError];
 }
